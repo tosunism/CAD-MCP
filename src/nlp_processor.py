@@ -6,7 +6,7 @@ import json
 import os
 import os.path
 
-# 直接读取config.json文件
+# Read config.json directly
 config_path = os.path.join(os.path.dirname(__file__), 'config.json')
 with open(config_path, 'r', encoding='utf-8') as f:
     config = json.load(f)
@@ -14,83 +14,63 @@ with open(config_path, 'r', encoding='utf-8') as f:
 logger = logging.getLogger('nlp_processor')
 
 class NLPProcessor:
-    """自然语言处理器类，负责解析用户指令并转换为CAD操作"""
+    """Parse user instructions and convert them into CAD operations."""
     
     def __init__(self):
         """
-        初始化NLP处理器
+        Initialize the NLP processor.
         """
         
         self.logger = logging.getLogger(__name__)
-        self.logger.info("自然语言处理器已初始化")
+        self.logger.info("NLP processor initialized")
 
-        # 对于老版本的CAD不支持设置RGB颜色，所以为了兼容性，按照索引设置颜色
+        # Older CAD versions do not support RGB colors, so use indexed colors for compatibility.
         
-        # 详细颜色名称到RGB值的映射
+        # Map color names to CAD color indices.
         self.color_rgb_map = {
-            # 基本颜色
-            "红色": 1,
-            "黄色": 2,
-            "绿色": 3,
-            "青色": 4,
-            "蓝色": 5,
-            "洋红色": 6,
-            "白色": 7,
-            "灰色": 8,
-            "浅灰色": 9,
-            "黑色": 250,
-            "棕色": 251,
-            "橙色": 30,
-            "紫色": 200,
-            "粉色": 221,
-            
-
-            # 基本颜色 - 英文键
-            "Red": 1,
-            "Yellow": 2,
-            "Green": 3,
-            "Cyan": 4,
-            "Blue": 5,
-            "Magenta": 6,
-            "White": 7,
-            "Gray": 8,
-            "Light Gray": 9,
-            "Black": 250,
-            "Brown": 251,
-            "Orange": 30,
-            "Purple": 200,
-            "Pink": 221,
+            "red": 1,
+            "yellow": 2,
+            "green": 3,
+            "cyan": 4,
+            "blue": 5,
+            "magenta": 6,
+            "white": 7,
+            "gray": 8,
+            "light gray": 9,
+            "black": 250,
+            "brown": 251,
+            "orange": 30,
+            "purple": 200,
+            "pink": 221,
                        
         }
         
-        # 扩展关键词映射
+        # Map common shape terms to CAD entities.
         self.shape_keywords = {
-            # 基本形状
-            "直线": "line", "线": "line",
-            "圆": "circle", "圆形": "circle",
-            "弧": "arc", "圆弧": "arc",
-            "矩形": "rectangle", "方形": "rectangle", "正方形": "square",
-            "多段线": "polyline", "折线": "polyline",
-            "文本": "text", "文字": "text",
-            "标注": "dimension", "尺寸标注": "dimension",
+            "line": "line", "lines": "line",
+            "circle": "circle", "circles": "circle",
+            "arc": "arc", "arcs": "arc",
+            "rectangle": "rectangle", "square": "square",
+            "polyline": "polyline", "polygon": "polyline",
+            "text": "text", "label": "text",
+            "dimension": "dimension", "dimensions": "dimension",
             
         }
         
-        # 动作关键词映射
+        # Map common action terms to operations.
         self.action_keywords = {
-            # 基本动作
-            "画": "draw", "绘制": "draw", "创建": "draw", "添加": "draw",
-            "修改": "modify", "调整": "modify", "改变": "modify",
-            "移动": "move", "旋转": "rotate", "缩放": "scale",
-            "放大": "scale_up", "缩小": "scale_down",
-            "删除": "erase", "擦除": "erase", "移除": "erase",
-            "保存": "save",
+            "draw": "draw", "create": "draw", "add": "draw", "make": "draw",
+            "modify": "modify", "adjust": "modify", "change": "modify",
+            "move": "move", "rotate": "rotate", "scale": "scale",
+            "enlarge": "scale_up", "shrink": "scale_down",
+            "delete": "erase", "erase": "erase", "remove": "erase",
+            "save": "save",
             
-            # 专业操作
-            "标注": "dimension",
-            "填充": "hatch",
-            "创建图层": "create_layer",
-            "切换图层": "change_layer"
+            # Specialized operations.
+            "dimension": "dimension",
+            "hatch": "hatch",
+            "create layer": "create_layer",
+            "change layer": "change_layer"
         }
     
       
@@ -106,48 +86,49 @@ class NLPProcessor:
         except:
             pass
 
-        # 将命令转换为小写
+        # Normalize the command to lowercase.
         command = command.lower()
         
-        # 尝试匹配颜色名称
+        # Try to match a color name.
         for color_name in self.color_rgb_map.keys():
             if color_name.lower() in command:
                 return self.color_rgb_map[color_name]
         
-        # 尝试匹配颜色描述（如"淡蓝色"）
-        color_pattern = r'([深浅淡]?[a-zA-Z\u4e00-\u9fa5]+色)'
+        # Try to match a color description such as "light blue".
+        color_pattern = r'([a-zA-Z ]+)'
         color_matches = re.findall(color_pattern, command)
         
         for color_match in color_matches:
-            # 检查是否是已知的颜色名称
+            # Check whether this is a known color name.
             if color_match in self.color_rgb_map:
                 return self.color_rgb_map[color_match]
                     
-        # 如果找不到颜色信息，返回7 默认白色
+        # Return 7 (white) when no color is found.
         return 7
     
     def process_command(self, command: str) -> Dict[str, Any]:
-        """处理自然语言命令并返回结果"""
-        self.logger.info(f"处理命令: {command}")
-        
-        # 解析命令
+        """Process a natural language command and return the result."""
+        self.logger.info(f"Processing command: {command}")
+        if "block" in command and any(k in command for k in ["rename", "change name"]):
+            return self._parse_rename_blocks(command)
+        # Parse the command.
         parsed_command = self.parse_command(command)
       
-        # 返回解析结果
+        # Return the parsed command.
         return parsed_command
     
     def parse_command(self, command: str) -> Dict[str, Any]:
-        """解析自然语言命令并转换为CAD操作参数"""
-        self.logger.info(f"解析命令: {command}")
+        """Parse a natural language command into CAD operation parameters."""
+        self.logger.info(f"Parsing command: {command}")
         
-        # 将命令转换为小写并去除多余空格
+        # Convert the command to lowercase and remove extra whitespace.
         command = command.lower().strip()
         
-        # 尝试识别命令类型
+        # Try to identify the command type.
         command_type = self._identify_command_type(command)
-        self.logger.debug(f"识别到的命令类型: {command_type}")
+        self.logger.debug(f"Identified command type: {command_type}")
         
-        # 根据命令类型分发到不同的处理函数
+        # Dispatch to the handler for this command type.
         if command_type == "draw_line":
             return self._parse_draw_line(command)
         elif command_type == "draw_circle":
@@ -164,20 +145,27 @@ class NLPProcessor:
             return self._parse_draw_hatch(command)
         elif command_type == "save":
             return self._parse_save(command)
+
+        #################################### addition
+        elif command_type == "rename_blocks":
+            return self._parse_rename_blocks(command)
+        ####################################
+
+
         else:
-            # 默认返回一个错误结果
+            # Return an error when the command type is unknown.
             return {
                 "type": "unknown",
-                "error": "无法识别的命令类型",
+                "error": "Unrecognized command type",
                 "original_command": command
             }
     
     def _identify_command_type(self, command: str) -> str:
-        """识别命令类型"""
-        # 检查操作类型
+        """Identify the command type."""
+        # Check for an action and shape combination.
         for action, action_type in self.action_keywords.items():
             if action in command:
-                # 基本形状处理
+                # Handle basic shapes.
                 for shape, shape_type in self.shape_keywords.items():
                     if shape in command:
                         if action_type == "draw":
@@ -196,23 +184,33 @@ class NLPProcessor:
                             elif shape_type == "dimension":
                                 return "add_dimension"
         
-        # 检查是否是创建图层命令
-        if "图层" in command and any(action in command for action in ["创建", "新建", "添加"]):
+        # Check for layer creation commands.
+        if "layer" in command and any(action in command for action in ["create", "add", "make"]):
             return "create_layer"
-        
-        # 检查是否是标注命令
-        if "标注" in command:
+
+        ########################################## addition
+        if "block" in command and any(
+                keyword in command for keyword in ["rename", "change name"]):
+            return "rename_blocks"
+        ##########################################
+
+        # Check for dimension commands.
+        if "dimension" in command:
             return "add_dimension"
-        
-        if "保存" in command:
+        ########################################## addition
+        if "save" in command:
+            return "save"
+        ##########################################
+
+        if "save" in command:
             return "save"
         
-        # 如果无法识别，返回未知类型
+        # Return unknown if no command type matches.
         return "unknown"
     
     def _extract_coordinates(self, text: str) -> List[Tuple[float, float, float]]:
-        """从文本中提取坐标点"""
-        # 匹配坐标格式: (x,y,z) 或 (x,y) 或 x,y,z 或 x,y
+        """Extract coordinate points from text."""
+        # Match coordinates in (x,y,z), (x,y), x,y,z, or x,y format.
         pattern = r'\(?\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)(?:\s*,\s*(-?\d+\.?\d*))?\s*\)?'
         matches = re.finditer(pattern, text)
         
@@ -226,58 +224,57 @@ class NLPProcessor:
         return coordinates
     
     def _extract_numbers(self, text: str) -> List[float]:
-        """从文本中提取数字"""
+        """Extract numbers from text."""
         pattern = r'(-?\d+\.?\d*)'
         matches = re.findall(pattern, text)
         return [float(match) for match in matches]
     
     def _parse_draw_line(self, command: str) -> Dict[str, Any]:
-        """解析绘制直线命令"""
-        # 尝试提取坐标
+        """Parse a line drawing command."""
+        # Try to extract coordinates.
         coordinates = self._extract_coordinates(command)
         
         if len(coordinates) >= 2:
-            # 如果找到至少两个坐标点，使用前两个作为起点和终点
+            # Use the first two points as the start and end when available.
             return {
                 "type": "draw_line",
                 "start_point": coordinates[0],
                 "end_point": coordinates[1]
             }
         else:
-            # 如果没有找到足够的坐标点，尝试使用默认值
-            # 这里可以根据需要设置默认的起点和终点
+            # Use default coordinates if the command does not contain enough points.
             return {
                 "type": "draw_line",
                 "start_point": (0, 0, 0),
                 "end_point": (100, 100, 0),
-                "note": "使用默认坐标，因为命令中未提供足够的坐标信息"
+                "note": "Using default coordinates because the command did not provide enough points"
             }
     
     def _parse_draw_circle(self, command: str) -> Dict[str, Any]:
-        """解析绘制圆命令"""
-        # 尝试提取坐标和半径
+        """Parse a circle drawing command."""
+        # Try to extract coordinates and the radius.
         coordinates = self._extract_coordinates(command)
         numbers = self._extract_numbers(command)
         
-        # 提取半径
+        # Extract the radius.
         radius = None
-        radius_pattern = r'(?:半径|r|radius)[^\d]*?(-?\d+\.?\d*)'
+        radius_pattern = r'(?:radius|r)[^\d]*?(-?\d+\.?\d*)'
         radius_match = re.search(radius_pattern, command, re.IGNORECASE)
         if radius_match:
             radius = float(radius_match.group(1))
         elif len(numbers) > 0:
-            # 如果没有明确指定半径，使用找到的第一个数字作为半径
+            # Use the first number as the radius if none is specified explicitly.
             radius = numbers[0]
         else:
-            # 默认半径
+            # Default radius.
             radius = 50.0
         
-        # 提取中心点
+        # Extract the center point.
         center = None
         if len(coordinates) > 0:
             center = coordinates[0]
         else:
-            # 默认中心点
+            # Default center point.
             center = (0, 0, 0)
         
         return {
@@ -287,47 +284,47 @@ class NLPProcessor:
         }
     
     def _parse_draw_arc(self, command: str) -> Dict[str, Any]:
-        """解析绘制圆弧命令"""
-        # 尝试提取坐标、半径和角度
+        """Parse an arc drawing command."""
+        # Try to extract coordinates, the radius, and the angles.
         coordinates = self._extract_coordinates(command)
         numbers = self._extract_numbers(command)
         
-        # 提取中心点
+        # Extract the center point.
         center = None
         if len(coordinates) > 0:
             center = coordinates[0]
         else:
-            # 默认中心点
+            # Default center point.
             center = (0, 0, 0)
         
-        # 提取半径
+        # Extract the radius.
         radius = None
-        radius_pattern = r'(?:半径|r|radius)[^\d]*?(-?\d+\.?\d*)'
+        radius_pattern = r'(?:radius|r)[^\d]*?(-?\d+\.?\d*)'
         radius_match = re.search(radius_pattern, command, re.IGNORECASE)
         if radius_match:
             radius = float(radius_match.group(1))
         elif len(numbers) > 0:
-            # 如果没有明确指定半径，使用找到的第一个数字作为半径
+            # Use the first number as the radius if none is specified explicitly.
             radius = numbers[0]
         else:
-            # 默认半径
+            # Default radius.
             radius = 50.0
         
-        # 提取起始角度和结束角度
+        # Extract the start and end angles.
         start_angle = 0.0
         end_angle = 90.0
         
-        start_angle_pattern = r'(?:起始角度|start angle)[^\d]*?(-?\d+\.?\d*)'
+        start_angle_pattern = r'(?:start angle|start)[^\d]*?(-?\d+\.?\d*)'
         start_angle_match = re.search(start_angle_pattern, command, re.IGNORECASE)
         if start_angle_match:
             start_angle = float(start_angle_match.group(1))
         
-        end_angle_pattern = r'(?:结束角度|end angle)[^\d]*?(-?\d+\.?\d*)'
+        end_angle_pattern = r'(?:end angle|end)[^\d]*?(-?\d+\.?\d*)'
         end_angle_match = re.search(end_angle_pattern, command, re.IGNORECASE)
         if end_angle_match:
             end_angle = float(end_angle_match.group(1))
         
-        # 确保所有必要参数都有值
+        # Ensure all required parameters have values.
         if center is None:
             center = (0, 0, 0)
         if radius is None:
@@ -337,7 +334,7 @@ class NLPProcessor:
         if end_angle is None:
             end_angle = 90.0
             
-        self.logger.debug(f"解析圆弧命令结果: 中心点={center}, 半径={radius}, 起始角度={start_angle}, 结束角度={end_angle}")
+        self.logger.debug(f"Parsed arc command: center={center}, radius={radius}, start angle={start_angle}, end angle={end_angle}")
         
         return {
             "type": "draw_arc",
@@ -348,38 +345,38 @@ class NLPProcessor:
         }
     
     def _parse_draw_rectangle(self, command: str) -> Dict[str, Any]:
-        """解析绘制矩形命令"""
-        # 尝试提取坐标
+        """Parse a rectangle drawing command."""
+        # Try to extract coordinates.
         coordinates = self._extract_coordinates(command)
         
         if len(coordinates) >= 2:
-            # 如果找到至少两个坐标点，使用前两个作为对角点
+            # Use the first two points as opposite corners when available.
             return {
                 "type": "draw_rectangle",
                 "corner1": coordinates[0],
                 "corner2": coordinates[1]
             }
         else:
-            # 如果没有找到足够的坐标点，尝试提取宽度和高度
+            # Try to extract the width and height if there are not enough points.
             width = 100.0
             height = 100.0
             
-            width_pattern = r'(?:宽度|width)[^\d]*?(-?\d+\.?\d*)'
+            width_pattern = r'(?:width|w)[^\d]*?(-?\d+\.?\d*)'
             width_match = re.search(width_pattern, command, re.IGNORECASE)
             if width_match:
                 width = float(width_match.group(1))
             
-            height_pattern = r'(?:高度|height)[^\d]*?(-?\d+\.?\d*)'
+            height_pattern = r'(?:height|h)[^\d]*?(-?\d+\.?\d*)'
             height_match = re.search(height_pattern, command, re.IGNORECASE)
             if height_match:
                 height = float(height_match.group(1))
             
-            # 如果找到一个坐标点，使用它作为起点
+            # Use the one available point as the first corner.
             if len(coordinates) == 1:
                 corner1 = coordinates[0]
                 corner2 = (corner1[0] + width, corner1[1] + height, corner1[2])
             else:
-                # 默认起点和终点
+                # Default start and end points.
                 corner1 = (0, 0, 0)
                 corner2 = (width, height, 0)
             
@@ -390,69 +387,69 @@ class NLPProcessor:
             }
     
     def _parse_draw_polyline(self, command: str) -> Dict[str, Any]:
-        """解析绘制多段线命令"""
-        # 尝试提取坐标
+        """Parse a polyline drawing command."""
+        # Try to extract coordinates.
         coordinates = self._extract_coordinates(command)
         
-        # 检查是否需要闭合
-        closed = "闭合" in command or "封闭" in command
+        # Check whether the polyline should be closed.
+        closed = "closed" in command or "close" in command
         
         if len(coordinates) >= 2:
-            # 如果找到至少两个坐标点，使用它们作为多段线的点
+            # Use the available points when at least two are present.
             return {
                 "type": "draw_polyline",
                 "points": coordinates,
                 "closed": closed
             }
         else:
-            # 如果没有找到足够的坐标点，返回错误
+            # Return an error if there are not enough points.
             return {
                 "type": "error",
-                "message": "绘制多段线需要至少两个坐标点"
+                "message": "A polyline requires at least two coordinate points"
             }
     
     def _parse_draw_text(self, command: str) -> Dict[str, Any]:
-        """解析绘制文本命令"""
-        # 尝试提取坐标
+        """Parse a text drawing command."""
+        # Try to extract coordinates.
         coordinates = self._extract_coordinates(command)
         
-        # 提取文本内容
-        text_pattern = r'[文本内容|text|内容][：:]\s*[\"\'](.*?)[\"\']'
+        # Extract the text content.
+        text_pattern = r'(?:text|content)\s*[:=]\s*[\"\'](.*?)[\"\']'
         text_match = re.search(text_pattern, command)
         
         text = ""
         if text_match:
             text = text_match.group(1)
         else:
-            # 尝试提取引号中的内容作为文本
+            # Use quoted content as the text if available.
             quote_pattern = r'[\"\'](.*?)[\"\']'
             quote_match = re.search(quote_pattern, command)
             if quote_match:
                 text = quote_match.group(1)
             else:
-                # 如果没有找到引号中的内容，使用默认文本
-                text = "示例文本"
+                # Use default text if no quoted content was found.
+                text = "Example text"
         
-        # 提取文本高度
-        height = 2.5  # 默认高度
-        height_pattern = r'(?:高度|height)[^\d]*?(-?\d+\.?\d*)'
+        # Extract the text height.
+        height = 2.5  # Default height.
+        height_pattern = r'(?:height|h)[^\d]*?(-?\d+\.?\d*)'
         height_match = re.search(height_pattern, command, re.IGNORECASE)
         if height_match:
             height = float(height_match.group(1))
         
-        # 提取旋转角度
-        rotation = 0.0  # 默认角度
-        rotation_pattern = r'(?:旋转|角度|rotation)[^\d]*?(-?\d+\.?\d*)'
+        # Extract the rotation angle.
+        rotation = 0.0  # Default angle.
+        rotation_pattern = r'(?:rotation|angle)[^\d]*?(-?\d+\.?\d*)'
         rotation_match = re.search(rotation_pattern, command, re.IGNORECASE)
         if rotation_match:
             rotation = float(rotation_match.group(1))
         
-        # 提取插入点
+        # Extract the insertion point.
         position = None
         if len(coordinates) > 0:
             position = coordinates[0]
         else:
-            # 默认插入点
+            # Default insertion point.
             position = (0, 0, 0)
         
         return {
@@ -464,15 +461,15 @@ class NLPProcessor:
         }
     
     def _parse_draw_hatch(self, command: str) -> Dict[str, Any]:
-        """解析绘制填充命令"""
-        # 尝试提取坐标点集
+        """Parse a hatch drawing command."""
+        # Try to extract the boundary points.
         coordinates = self._extract_coordinates(command)
         
-        # 提取填充图案名称
-        pattern_name = "SOLID"  # 默认为实体填充
+        # Extract the hatch pattern name.
+        pattern_name = "SOLID"  # Default to a solid fill.
         pattern_patterns = [
-            r'(?:图案|pattern)[^\w]*?["\'](.*?)["\']\'',
-            r'(?:图案|pattern)[^\w]*?(\w+)'
+            r"""pattern[^\w]*?["'](.*?)["']""",
+            r'pattern[^\w]*?(\w+)'
         ]
         
         for pattern in pattern_patterns:
@@ -481,16 +478,16 @@ class NLPProcessor:
                 pattern_name = pattern_match.group(1).upper()
                 break
         
-        # 提取填充比例
-        scale = 1.0  # 默认比例
-        scale_pattern = r'(?:比例|缩放|scale)[^\d]*?(\d+\.?\d*)'
+        # Extract the hatch scale.
+        scale = 1.0  # Default scale.
+        scale_pattern = r'(?:scale)[^\d]*?(\d+\.?\d*)'
         scale_match = re.search(scale_pattern, command, re.IGNORECASE)
         if scale_match:
             scale = float(scale_match.group(1))
         
-        # 检查是否有足够的点来定义填充边界
+        # Check that there are enough points to define the hatch boundary.
         if len(coordinates) >= 3:
-            self.logger.debug(f"解析填充命令结果: 点集={coordinates}, 图案={pattern_name}, 比例={scale}")
+            self.logger.debug(f"Parsed hatch command: points={coordinates}, pattern={pattern_name}, scale={scale}")
             return {
                 "type": "draw_hatch",
                 "points": coordinates,
@@ -498,27 +495,51 @@ class NLPProcessor:
                 "scale": scale
             }
         else:
-            # 如果没有足够的点，返回错误信息
-            self.logger.warning("填充命令解析失败: 需要至少3个点来定义填充边界")
+            # Return an error if there are not enough points.
+            self.logger.warning("Could not parse hatch command: at least 3 points are required to define the boundary")
             return {
                 "type": "error",
-                "message": "绘制填充需要至少3个点来定义边界"
+                "message": "A hatch requires at least 3 points to define its boundary"
             }
 
 
     def _parse_save(self, command: str) -> Dict[str, Any]:
-        """解析保存命令"""
-        # 尝试提取文件路径
-        path_pattern = r'(?:路径|保存到|path)[^\w]*?[\"\'](.*?)[\"\']'
+        """Parse a save command."""
+        # Try to extract the file path.
+        path_pattern = r'(?:path|save to)[^\w]*?[\"\'](.*?)[\"\']'
         path_match = re.search(path_pattern, command, re.IGNORECASE)
         
         if path_match:
             file_path = path_match.group(1)
         else:
-            # 默认文件路径
+            # Use the configured default file path.
             file_path = os.path.join(config["output"]["directory"], config["output"]["default_filename"])
         
         return {
             "type": "save",
             "file_path": file_path
         }
+#################################################### addition
+
+    def _parse_rename_blocks(self, command: str) -> dict:
+        """Extract parameters for renaming blocks"""
+        import re
+
+        prefix_match = re.search(r"prefix\s+(\w+)", command)
+        prefix = prefix_match.group(1) if prefix_match else "Block"
+
+        layer_match = re.search(r"layer\s+(\w+)", command)
+        block_layer = layer_match.group(1) if layer_match else None
+
+        name_prefix_match = re.search(r"block name prefix\s+(\w+)", command)
+        name_prefix = name_prefix_match.group(1) if name_prefix_match else None
+
+        return {
+            "type": "rename_blocks",
+            "prefix": prefix,
+            "filter": {
+                "layer": block_layer,
+                "block_name_prefix": name_prefix
+            }
+        }
+#################################################

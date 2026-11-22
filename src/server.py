@@ -13,20 +13,20 @@ import sys
 
 sys.dont_write_bytecode = True
 
-# 使用绝对导入
+# Use absolute imports
 
 from nlp_processor import NLPProcessor
 
 from cad_controller import CADController
 
 
-# 配置Windows环境下的UTF-8编码
+# Configure UTF-8 encoding for Windows
 if sys.platform == "win32" and os.environ.get('PYTHONIOENCODING') is None:
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -38,54 +38,54 @@ logging.basicConfig(
 
 
 logger = logging.getLogger('mcp_cad_server')
-logger.info("启动 CAD MCP 服务器")
+logger.info("Starting the CAD MCP server")
 
 
 PROMPT_TEMPLATE = """
-助手的目标是演示如何使用CAD MCP服务。通过这个服务，您可以直接在对话中控制CAD软件，创建和修改图形。
+This assistant demonstrates how to use the CAD MCP service. You can control CAD software directly from the conversation to create and modify drawings.
 
 <cad-mcp>
 
-提示：
-这个服务器提供了一个名为"cad-assistant"的预设提示，帮助用户通过自然语言指令控制CAD。用户可以要求绘制各种形状、修改图形元素或保存图纸。
+Prompt:
+This server provides a preset prompt named "cad-assistant" to help users control CAD with natural language instructions. Users can ask it to draw shapes, modify drawing elements, or save a drawing.
 
-资源：
-此服务器提供"drawing://current"资源，表示当前的CAD图纸状态。
+Resource:
+This server provides the "drawing://current" resource, which represents the state of the current CAD drawing.
 
-工具：
+Tools:
 
-此服务器提供以下基本绘图工具：
-"draw_line": 在CAD中绘制直线
-"draw_circle": 在CAD中绘制圆
-"draw_arc": 在CAD中绘制弧
-"draw_ellipse": 在CAD中绘制椭圆
-"draw_polyline": 在CAD中绘制多段线
-"draw_rectangle": 在CAD中绘制矩形
-"draw_text": 在CAD中添加文本
-"draw_hatch": 在CAD中绘制填充
-"save_drawing": 保存当前图纸
-"add_dimension": 在CAD中添加线性标注
-"process_command": 处理自然语言命令并转换为CAD操作
+This server provides the following basic drawing tools:
+"draw_line": Draw a line in CAD
+"draw_circle": Draw a circle in CAD
+"draw_arc": Draw an arc in CAD
+"draw_ellipse": Draw an ellipse in CAD
+"draw_polyline": Draw a polyline in CAD
+"draw_rectangle": Draw a rectangle in CAD
+"draw_text": Add text in CAD
+"draw_hatch": Draw a hatch in CAD
+"save_drawing": Save the current drawing
+"add_dimension": Add a linear dimension in CAD
+"process_command": Process a natural language command and convert it to a CAD operation
 
 </cad-mcp>
 
-请以友好的方式开始演示，例如："嗨！今天我将向您展示如何使用CAD MCP服务。通过这个服务，您可以直接在我们的对话中控制CAD软件，无需手动操作界面。让我们开始吧！"
+Start the demonstration in a friendly way, for example: "Hi! Today I will show you how to use the CAD MCP service. You can control CAD software directly from our conversation to create and modify drawings without operating the interface manually. Let us get started!"
 """
 
-# 后期再做
-# "erase_entity": 删除指定的实体
-# "move_entity": 移动指定的实体
-# "rotate_entity": 旋转指定的实体
-# "scale_entity": 缩放指定的实体
+# To be implemented later
+# "erase_entity": Delete the specified entity
+# "move_entity": Move the specified entity
+# "rotate_entity": Rotate the specified entity
+# "scale_entity": Scale the specified entity
 
 class Config:
 
     def __init__(self):
-        # 直接读取config.json文件
+        # Read config.json directly
         config_path = os.path.join(os.path.dirname(__file__), 'config.json')
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = json.load(f)
-        logger.info("配置文件加载成功")
+        logger.info("Configuration file loaded successfully")
 
     @property
     def server_name(self) -> str:
@@ -97,7 +97,7 @@ class Config:
 
 class CADService:
     def __init__(self):
-        """初始化CAD服务"""
+        """Initialize the CAD service"""
         self.controller = CADController()
         self.nlp_processor = NLPProcessor()
         self.drawing_state = {
@@ -106,18 +106,52 @@ class CADService:
             "last_command": "",
             "last_result": ""
         }
-        logger.info("CAD服务已初始化")
+        logger.info("CAD service initialized")
     
     def start_cad(self):
-        """启动CAD"""
+        """Start CAD"""
         return self.controller.start_cad()
-    
+
+    ############################################ addition
+
+    def rename_all_blocks(self, prefix: str = "Pen") -> List[str]:
+        """Rename all user-defined blocks in the drawing to Pen-1, Pen-2, ..."""
+        if not self.controller.is_running():
+            self.start_cad()
+
+        renamed = []
+        index = 1
+        for block in self.controller.doc.Blocks:
+            name = block.Name
+            if name.startswith("*"):  # Skip system blocks like *Model_Space
+                continue
+            new_name = f"{prefix}-{index}"
+            if name.lower() != new_name.lower():
+                success = self.controller.rename_block(name, new_name)
+                if success:
+                    renamed.append((name, new_name))
+                    index += 1
+        return renamed
+
+
+    def rename_block(self, old_name: str, new_name: str):
+        """Rename a block definition from old_name to new_name"""
+        if not self.controller.is_running():
+            self.start_cad()
+
+        success = self.controller.rename_block(old_name, new_name)
+        self.drawing_state["last_command"] = f"Rename block '{old_name}' to '{new_name}'"
+        self.drawing_state["last_result"] = "Success" if success else "Failed"
+        return success
+
+    ############################################
+
     def draw_line(self, start_point, end_point, layer=None, color=None, lineweight=None):
-        """绘制直线"""
+        """Draw a line"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_line(start_point, end_point, current_layer, color, lineweight)
@@ -130,19 +164,19 @@ class CADService:
                 "color": color,
                 "lineweight": lineweight
             })
-            self.drawing_state["last_command"] = f"绘制直线从{start_point}到{end_point}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Draw line from {start_point} to {end_point}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def draw_circle(self, center, radius, layer=None, color=None, lineweight=None):
-        """绘制圆"""
+        """Draw a circle"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_circle(center, radius, current_layer, color, lineweight)
@@ -155,19 +189,19 @@ class CADService:
                 "color": color,
                 "lineweight": lineweight
             })
-            self.drawing_state["last_command"] = f"绘制圆，中心点{center}，半径{radius}，图层{current_layer}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Draw circle: center={center}; radius={radius}; layer={current_layer}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def draw_arc(self, center, radius, start_angle, end_angle, layer=None, color=None, lineweight=None):
-        """绘制弧"""
+        """Draw an arc"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_arc(center, radius, start_angle, end_angle, current_layer, color, lineweight)
@@ -183,19 +217,19 @@ class CADService:
                 "color": color,
                 "lineweight": lineweight
             })
-            self.drawing_state["last_command"] = f"绘制弧，中心点{center}，半径{radius}，起始角度{start_angle}，结束角度{end_angle}，图层{current_layer}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Draw arc: center={center}; radius={radius}; start angle={start_angle}; end angle={end_angle}; layer={current_layer}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def draw_ellipse(self, center, major_axis, minor_axis, rotation=0, layer=None, color=None, lineweight=None):
-        """绘制椭圆"""
+        """Draw an ellipse"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_ellipse(center, major_axis, minor_axis, rotation, current_layer, color, lineweight)
@@ -211,19 +245,19 @@ class CADService:
                 "color": color,
                 "lineweight": lineweight
             })
-            self.drawing_state["last_command"] = f"绘制椭圆，中心点{center}，长轴{major_axis}，短轴{minor_axis}，旋转角度{rotation}，图层{current_layer}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Draw ellipse: center={center}; major axis={major_axis}; minor axis={minor_axis}; rotation={rotation}; layer={current_layer}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def draw_polyline(self, points, closed=False, layer=None, color=None, lineweight=None):
-        """绘制多段线"""
+        """Draw a polyline"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_polyline(points, closed, current_layer, color, lineweight)
@@ -236,19 +270,19 @@ class CADService:
                 "color": color,
                 "lineweight": lineweight
             })
-            self.drawing_state["last_command"] = f"绘制多段线，点集{points}，{'闭合' if closed else '不闭合'}，图层{current_layer}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Draw polyline: points={points}, {'closed' if closed else 'open'}, layer={current_layer}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def draw_rectangle(self, corner1, corner2, layer=None, color=None, lineweight=None):
-        """绘制矩形"""
+        """Draw a rectangle"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_rectangle(corner1, corner2, current_layer, color, lineweight)
@@ -261,19 +295,19 @@ class CADService:
                 "color": color,
                 "lineweight": lineweight
             })
-            self.drawing_state["last_command"] = f"绘制矩形，对角点{corner1}和{corner2}，图层{current_layer}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Draw rectangle: opposite corners={corner1} and {corner2}, layer={current_layer}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def draw_text(self, position, text, height=2.5, rotation=0, layer=None, color=None):
-        """添加文本"""
+        """Add text"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_text(position, text, height, rotation, current_layer, color)
@@ -287,19 +321,19 @@ class CADService:
                 "layer": current_layer,
                 "color": color
             })
-            self.drawing_state["last_command"] = f"添加文本'{text}'，位置{position}，高度{height}，旋转{rotation}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Add text '{text}' at {position}; height={height}; rotation={rotation}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def draw_hatch(self, points, pattern_name="SOLID", scale=1.0, layer=None, color=None):
-        """绘制填充"""
+        """Draw a hatch"""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.draw_hatch(points, pattern_name, scale, current_layer, color)
@@ -312,19 +346,19 @@ class CADService:
                 "layer": current_layer,
                 "color": color
             })
-            self.drawing_state["last_command"] = f"绘制填充，点集{points}，图案{pattern_name}，比例{scale}，图层{current_layer}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Draw hatch: points={points}, pattern={pattern_name}, scale={scale}, layer={current_layer}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def add_dimension(self, start_point, end_point, text_position=None,textheight=5, layer=None, color=None):
-        """添加线性标注"""
+        """Add a linear dimension."""
         if not self.controller.is_running():
             self.start_cad()
         
-        # 使用当前图层或指定图层
+        # Use the current layer or the specified layer
         current_layer = layer or self.drawing_state["current_layer"]
         
         result = self.controller.add_dimension(start_point, end_point, text_position, textheight,current_layer, color)
@@ -338,70 +372,87 @@ class CADService:
                 "layer": current_layer,
                 "color": color
             })
-            self.drawing_state["last_command"] = f"添加标注从{start_point}到{end_point}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Add dimension from {start_point} to {end_point}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
 
     def save_drawing(self, file_path):
-        """保存图纸"""
+        """Save the drawing"""
         if not self.controller.is_running():
             return False
         
         result = self.controller.save_drawing(file_path)
         if result:
-            self.drawing_state["last_command"] = f"保存图纸到{file_path}"
-            self.drawing_state["last_result"] = "成功"
+            self.drawing_state["last_command"] = f"Save the drawing to {file_path}"
+            self.drawing_state["last_result"] = "Success"
         else:
-            self.drawing_state["last_result"] = "失败"
+            self.drawing_state["last_result"] = "Failed"
         
         return result
     
     def process_command(self, command: str) -> Dict[str, Any]:
-        """处理自然语言命令"""
+        """Process a natural language command"""
         if not self.controller.is_running():
             self.start_cad()
-        # 使用NLP处理器解析命令
+        # Parse the command with the NLP processor
         parsed_command = self.nlp_processor.process_command(command)
         command_type = parsed_command.get("type")
         try:
-            # 基本绘图命令处理
+            # Handle basic drawing commands
             if command_type == "draw_line":
                 start_point = parsed_command.get("start_point")
                 end_point = parsed_command.get("end_point")
-                # 获取颜色参数
+                # Get the color parameter
                 color = parsed_command.get("color")
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = self.nlp_processor.extract_color_from_command(command)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
-                # 获取线宽参数
+                    color = color_rgb  # Prefer the color extracted from the command
+                # Get the lineweight parameter
                 lineweight = parsed_command.get("lineweight")
                 result = self.draw_line(start_point, end_point, None, color, lineweight)
                 return {
                     "success": result is not None,
-                    "message": "直线已绘制" if result else "绘制直线失败",
+                    "message": "Line drawn" if result else "Failed to draw line",
                     "entity_id": result.Handle if result else None
                 }
+
+            ####################################################### addition
+            elif command_type == "rename_blocks":
+                prefix = parsed_command.get("prefix", "Block")
+                filter_layer = parsed_command.get("filter", {}).get("layer")
+                filter_block_name_prefix = parsed_command.get("filter", {}).get("block_name_prefix")
+
+                success = self.controller.rename_blocks(
+                    prefix=prefix,
+                    filter_layer=filter_layer,
+                    filter_block_name_prefix=filter_block_name_prefix
+                )
+                return {
+                    "success": success,
+                    "message": f"Blocks renamed with prefix '{prefix}'"
+                }
+            ########################################################
 
             elif command_type == "draw_circle":
                 center = parsed_command.get("center")
                 radius = parsed_command.get("radius")
-                # 获取颜色参数
+                # Get the color parameter
                 color = parsed_command.get("color")
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = self.nlp_processor.extract_color_from_command(command)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
-                # 获取线宽参数
+                    color = color_rgb  # Prefer the color extracted from the command
+                # Get the lineweight parameter
                 lineweight = parsed_command.get("lineweight")
                 result = self.draw_circle(center, radius, None, color, lineweight)
                 return {
                     "success": result is not None,
-                    "message": "圆已绘制" if result else "绘制圆失败",
+                    "message": "Circle drawn" if result else "Failed to draw circle",
                     "entity_id": result.Handle if result else None
                 }
 
@@ -410,26 +461,26 @@ class CADService:
                 radius = parsed_command.get("radius")
                 start_angle = parsed_command.get("start_angle")
                 end_angle = parsed_command.get("end_angle")
-                # 确保所有必要参数都存在且有效
+                # Ensure all required parameters are present and valid
                 if center is None or radius is None or start_angle is None or end_angle is None:
                     return {
                         "success": False,
-                        "message": "绘制圆弧失败：缺少必要参数",
-                        "error": "缺少必要参数：中心点、半径、起始角度或结束角度"
+                        "message": "Failed to draw arc: required parameters are missing",
+                        "error": "Missing required parameters: center, radius, start angle, or end angle"
                     }
-                # 获取颜色参数
+                # Get the color parameter
                 color = parsed_command.get("color")
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = self.nlp_processor.extract_color_from_command(command)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
-                # 获取线宽参数
+                    color = color_rgb  # Prefer the color extracted from the command
+                # Get the lineweight parameter
                 lineweight = parsed_command.get("lineweight")
                 result = self.draw_arc(center, radius, start_angle, end_angle, None, color, lineweight)
 
                 return {
                     "success": result is not None,
-                    "message": "圆弧已绘制" if result else "绘制圆弧失败",
+                    "message": "Arc drawn" if result else "Failed to draw arc",
                     "entity_id": result.Handle if result else None
                 }
                 
@@ -437,46 +488,46 @@ class CADService:
                 center = parsed_command.get("center")
                 major_axis = parsed_command.get("major_axis")
                 minor_axis = parsed_command.get("minor_axis")
-                rotation = parsed_command.get("rotation", 0)  # 默认旋转角度为0
-                # 确保所有必要参数都存在且有效
+                rotation = parsed_command.get("rotation", 0)  # Default rotation angle is 0
+                # Ensure all required parameters are present and valid
                 if center is None or major_axis is None or minor_axis is None:
                     return {
                         "success": False,
-                        "message": "绘制椭圆失败：缺少必要参数",
-                        "error": "缺少必要参数：中心点、长轴或短轴"
+                        "message": "Failed to draw ellipse: required parameters are missing",
+                        "error": "Missing required parameters: center, major axis, or minor axis"
                     }
-                # 获取颜色参数
+                # Get the color parameter
                 color = parsed_command.get("color")
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = self.nlp_processor.extract_color_from_command(command)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
-                # 获取线宽参数
+                    color = color_rgb  # Prefer the color extracted from the command
+                # Get the lineweight parameter
                 lineweight = parsed_command.get("lineweight")
                 result = self.draw_ellipse(center, major_axis, minor_axis, rotation, None, color, lineweight)
 
                 return {
                     "success": result is not None,
-                    "message": "椭圆已绘制" if result else "绘制椭圆失败",
+                    "message": "Ellipse drawn" if result else "Failed to draw ellipse",
                     "entity_id": result.Handle if result else None
                 }
 
             elif command_type == "draw_rectangle":
                 corner1 = parsed_command.get("corner1")
                 corner2 = parsed_command.get("corner2")
-                # 获取颜色参数
+                # Get the color parameter
                 color = parsed_command.get("color")
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = self.nlp_processor.extract_color_from_command(command)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
-                # 获取线宽参数
+                    color = color_rgb  # Prefer the color extracted from the command
+                # Get the lineweight parameter
                 lineweight = parsed_command.get("lineweight")
                 result = self.draw_rectangle(corner1, corner2, None, color, lineweight)
 
                 return {
                     "success": result is not None,
-                    "message": "矩形已绘制" if result else "绘制矩形失败",
+                    "message": "Rectangle drawn" if result else "Failed to draw rectangle",
                     "entity_id": result.Handle if result else None
                 }
 
@@ -485,17 +536,17 @@ class CADService:
                 text = parsed_command.get("text")
                 height = parsed_command.get("height", 2.5)
                 rotation = parsed_command.get("rotation", 0)
-                # 获取颜色参数
+                # Get the color parameter
                 color = parsed_command.get("color")
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = self.nlp_processor.extract_color_from_command(command)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 result = self.draw_text(position, text, height, rotation, None, color)
 
                 return {
                     "success": result is not None,
-                    "message": "文本已添加" if result else "添加文本失败",
+                    "message": "Text added" if result else "Failed to add text",
                     "entity_id": result.Handle if result else None
                 }
 
@@ -503,28 +554,28 @@ class CADService:
                 points = parsed_command.get("points")
                 pattern_name = parsed_command.get("pattern_name", "SOLID")
                 scale = parsed_command.get("scale", 1.0)
-                # 确保所有必要参数都存在且有效
+                # Ensure all required parameters are present and valid
                 if points is None or len(points) < 3:
                     return {
                         "success": False,
-                        "message": "绘制填充失败：缺少必要参数或点数不足",
-                        "error": "填充边界至少需要3个点"
+                        "message": "Failed to draw hatch: required parameters are missing or there are too few points",
+                        "error": "A hatch boundary requires at least 3 points"
                     }
-                # 获取颜色参数，可能是索引或RGB值
-                color = parsed_command.get("color")  # 获取颜色参数
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Get the color parameter, which may be an index or an RGB value
+                color = parsed_command.get("color")  # Get the color parameter
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = self.nlp_processor.extract_color_from_command(command)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 result = self.draw_hatch(points, pattern_name, scale, None, color)
 
                 return {
                     "success": result is not None,
-                    "message": "填充已绘制" if result else "绘制填充失败",
+                    "message": "Hatch drawn" if result else "Failed to draw hatch",
                     "entity_id": result.Handle if result else None
                 }
 
-            # 处理标注
+            # Handle dimensions
             elif command_type == "add_dimension":
                 start_point = parsed_command.get("start_point")
                 end_point = parsed_command.get("end_point")
@@ -532,7 +583,7 @@ class CADService:
                 result = self.controller.add_dimension(start_point, end_point, text_position)
                 return {
                     "success": result is not None,
-                    "message": "标注已添加" if result else "添加标注失败",
+                    "message": "Dimension added" if result else "Failed to add dimension",
                     "entity_id": result.Handle if result else None
                 }
 
@@ -542,114 +593,137 @@ class CADService:
 
                 return {
                     "success": result,
-                    "message": f"图纸已保存到 {file_path}" if result else f"保存图纸到 {file_path} 失败"
+                    "message": f"Drawing saved to {file_path}" if result else f"Failed to save drawing to {file_path}"
                 }
 
 
-            # 处理图层操作
+            # Handle layer operations
             elif command_type == "create_layer":
                 layer_name = parsed_command.get("layer_name")
-                color = parsed_command.get("color", 7)  # 默认白色
+                color = parsed_command.get("color", 7)  # White by default.
                 result = self.controller.create_layer(layer_name)  # , color
                 return {
                     "success": result,
-                    "message": f"图层 {layer_name} 已创建" if result else f"创建图层 {layer_name} 失败"
+                    "message": f"Layer {layer_name} created" if result else f"Failed to create layer {layer_name}"
                 }
             
         except Exception as e:
             return {
                 "success": False,
-                "message": f"处理命令时出错: {str(e)}"
+                "message": f"Error processing command: {str(e)}"
             }
 
 async def main():
-    """主入口函数"""
-    logger.info("启动 CAD MCP 服务器")
+    """Main entry point"""
+    logger.info("Starting the CAD MCP server")
 
-    # 加载配置
+    # Load configuration
     config = Config()
     cad_service = CADService()
     server = Server(config.server_name)
 
-    # 注册处理程序
-    logger.debug("注册处理程序")
+    # Register handlers
+    logger.debug("Register handlers")
 
     @server.list_resources()
     async def handle_list_resources() -> list[types.Resource]:
-        logger.debug("处理 list_resources 请求")
+        logger.debug("Handling list_resources request")
         return [
             types.Resource(
                 uri=AnyUrl("drawing://current"),
-                name="当前CAD图纸",
-                description="当前CAD图纸的状态",
+                name="Current CAD drawing",
+                description="Current CAD drawing state",
                 mimeType="application/json",
             )
         ]
 
     @server.read_resource()
     async def handle_read_resource(uri: AnyUrl) -> str:
-        logger.debug(f"处理 read_resource 请求，URI: {uri}")
+        logger.debug(f"Handling read_resource request, URI: {uri}")
         if uri.scheme != "drawing":
-            logger.error(f"不支持的 URI 协议: {uri.scheme}")
-            raise ValueError(f"不支持的 URI 协议: {uri.scheme}")
+            logger.error(f"Unsupported URI scheme: {uri.scheme}")
+            raise ValueError(f"Unsupported URI scheme: {uri.scheme}")
 
         path = str(uri).replace("drawing://", "")
         if not path or path != "current":
-            logger.error(f"未知的资源路径: {path}")
-            raise ValueError(f"未知的资源路径: {path}")
+            logger.error(f"Unknown resource path: {path}")
+            raise ValueError(f"Unknown resource path: {path}")
 
         return json.dumps(cad_service.drawing_state)
 
 
     @server.list_tools()
     async def handle_list_tools() -> list[types.Tool]:
-        """列出可用工具"""
+        """List available tools"""
         return [
             types.Tool(
                 name="draw_line",
-                description="在CAD中绘制直线",
+                description="Draw a line in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "start_point": {
                             "type": "array",
-                            "description": "起点坐标 [x, y, z]",
+                            "description": "Start point coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
                         "end_point": {
                             "type": "array",
-                            "description": "终点坐标 [x, y, z]",
+                            "description": "End point coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"},
-                        "lineweight": {"type": "number", "description": "线宽（可选）"}
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"},
+                        "lineweight": {"type": "number", "description": "Lineweight (optional)"}
                     },
                     "required": ["start_point", "end_point"],
                 },
             ),
 
+            ###################################### addition
+            types.Tool(
+                name="rename_blocks",
+                description="Rename blocks with a prefix, optionally filtered by layer or block name prefix",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "prefix": {"type": "string", "description": "Prefix for new block names"},
+                        "filter": {
+                            "type": "object",
+                            "properties": {
+                                "layer": {"type": "string",
+                                          "description": "Only rename blocks containing entities on this layer"},
+                                "block_name_prefix": {"type": "string",
+                                                      "description": "Only rename blocks starting with this name prefix"}
+                            }
+                        }
+                    },
+                    "required": ["prefix"]
+                }
+            ),
+            ######################################
+
             types.Tool(
                 name="draw_circle",
-                description="在CAD中绘制圆",
+                description="Draw a circle in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "center": {
                             "type": "array",
-                            "description": "圆心坐标 [x, y, z]",
+                            "description": "Center coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
-                        "radius": {"type": "number", "description": "圆的半径"},
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"},
-                        "lineweight": {"type": "number", "description": "线宽（可选）"}
+                        "radius": {"type": "number", "description": "Circle radius"},
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"},
+                        "lineweight": {"type": "number", "description": "Lineweight (optional)"}
                     },
                     "required": ["center", "radius"],
                 },
@@ -657,23 +731,23 @@ async def main():
 
             types.Tool(
                 name="draw_arc",
-                description="在CAD中绘制弧",
+                description="Draw an arc in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "center": {
                             "type": "array",
-                            "description": "圆心坐标 [x, y, z]",
+                            "description": "Center coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
-                        "radius": {"type": "number", "description": "弧的半径"},
-                        "start_angle": {"type": "number", "description": "起始角度（度）"},
-                        "end_angle": {"type": "number", "description": "结束角度（度）"},
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"},
-                        "lineweight": {"type": "number", "description": "线宽（可选）"}
+                        "radius": {"type": "number", "description": "Arc radius"},
+                        "start_angle": {"type": "number", "description": "Start angle (degrees)"},
+                        "end_angle": {"type": "number", "description": "End angle (degrees)"},
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"},
+                        "lineweight": {"type": "number", "description": "Lineweight (optional)"}
                     },
                     "required": ["center", "radius", "start_angle", "end_angle"],
                 },
@@ -681,23 +755,23 @@ async def main():
 
             types.Tool(
                 name="draw_ellipse",
-                description="在CAD中绘制椭圆",
+                description="Draw an ellipse in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "center": {
                             "type": "array",
-                            "description": "椭圆中心坐标 [x, y, z]",
+                            "description": "Ellipse center coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
-                        "major_axis": {"type": "number", "description": "长轴长度"},
-                        "minor_axis": {"type": "number", "description": "短轴长度"},
-                        "rotation": {"type": "number", "description": "旋转角度（度）（可选）"},
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"},
-                        "lineweight": {"type": "number", "description": "线宽（可选）"}
+                        "major_axis": {"type": "number", "description": "Major axis length"},
+                        "minor_axis": {"type": "number", "description": "Minor axis length"},
+                        "rotation": {"type": "number", "description": "Rotation angle (degrees, optional)"},
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"},
+                        "lineweight": {"type": "number", "description": "Lineweight (optional)"}
                     },
                     "required": ["center", "major_axis", "minor_axis"],
                 },
@@ -705,13 +779,13 @@ async def main():
 
             types.Tool(
                 name="draw_polyline",
-                description="在CAD中绘制多段线",
+                description="Draw a polyline in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "points": {
                             "type": "array",
-                            "description": "点集 [[x1, y1, z1], [x2, y2, z2], ...]",
+                            "description": "Point list [[x1, y1, z1], [x2, y2, z2], ...]",
                             "items": {
                                 "type": "array",
                                 "items": {"type": "number"},
@@ -720,10 +794,10 @@ async def main():
                             },
                             "minItems": 2
                         },
-                        "closed": {"type": "boolean", "description": "是否闭合"},
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"},
-                        "lineweight": {"type": "number", "description": "线宽（可选）"}
+                        "closed": {"type": "boolean", "description": "Whether to close the polyline"},
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"},
+                        "lineweight": {"type": "number", "description": "Lineweight (optional)"}
                     },
                     "required": ["points"],
                 },
@@ -731,27 +805,27 @@ async def main():
 
             types.Tool(
                 name="draw_rectangle",
-                description="在CAD中绘制矩形",
+                description="Draw a rectangle in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "corner1": {
                             "type": "array",
-                            "description": "第一个角点坐标 [x, y, z]",
+                            "description": "First corner coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
                         "corner2": {
                             "type": "array",
-                            "description": "第二个角点坐标 [x, y, z]",
+                            "description": "Second corner coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"},
-                        "lineweight": {"type": "number", "description": "线宽（可选）"}
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"},
+                        "lineweight": {"type": "number", "description": "Lineweight (optional)"}
                     },
                     "required": ["corner1", "corner2"],
                 },
@@ -759,22 +833,22 @@ async def main():
 
             types.Tool(
                 name="draw_text",
-                description="在CAD中添加文本",
+                description="Add text in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "position": {
                             "type": "array",
-                            "description": "插入点坐标 [x, y, z]",
+                            "description": "Insertion point coordinates [x, y, z]",
                             "items": {"type": "number"},
                             "minItems": 2,
                             "maxItems": 3
                         },
-                        "text": {"type": "string", "description": "文本内容"},
-                        "height": {"type": "number", "description": "文本高度"},
-                        "rotation": {"type": "number", "description": "旋转角度（度）"},
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"}
+                        "text": {"type": "string", "description": "Text content"},
+                        "height": {"type": "number", "description": "Text height"},
+                        "rotation": {"type": "number", "description": "Rotation angle (degrees)"},
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"}
                     },
                     "required": ["position", "text"],
                 },
@@ -782,13 +856,13 @@ async def main():
            
             types.Tool(
                 name="draw_hatch",
-                description="在CAD中绘制填充",
+                description="Draw a hatch in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "points": {
                             "type": "array",
-                            "description": "填充边界点集 [[x1, y1, z1], [x2, y2, z2], ...]",
+                            "description": "Hatch boundary point list [[x1, y1, z1], [x2, y2, z2], ...]",
                             "items": {
                                 "type": "array",
                                 "items": {"type": "number"},
@@ -797,10 +871,10 @@ async def main():
                             },
                             "minItems": 3
                         },
-                        "pattern_name": {"type": "string", "description": "填充图案名称（可选，默认为SOLID）"},
-                        "scale": {"type": "number", "description": "填充图案比例（可选，默认为1.0）"},
-                        "layer": {"type": "string", "description": "图层名称（可选）"},
-                        "color": {"type": "string", "description": "颜色名称（可选）"}
+                        "pattern_name": {"type": "string", "description": "Hatch pattern name (optional, defaults to SOLID)"},
+                        "scale": {"type": "number", "description": "Hatch pattern scale (optional, defaults to 1.0)"},
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"}
                     },
                     "required": ["points"],
                 },
@@ -808,16 +882,16 @@ async def main():
 
             types.Tool(
                 name="add_dimension",
-                description="在CAD中添加线性标注",
+                description="Add a linear dimension in CAD",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "start_point": {"type": "array", "description": "起点坐标 [x, y, z]", "items": {"type": "number"}, "minItems": 2, "maxItems": 3},
-                        "end_point": {"type": "array", "description": "终点坐标 [x, y, z]", "items": {"type": "number"}, "minItems": 2, "maxItems": 3},
-                        "text_position": {"type": "array", "description": "文本位置坐标 [x, y, z]，可选", "items": {"type": "number"}, "minItems": 2, "maxItems": 3},
-                        "textheight": {"type": "number", "description": "标注文本高度，可选"},
-                        "layer": {"type": "string", "description": "图层名称，可选"},
-                        "color": {"type": "string", "description": "颜色名称，可选"}
+                        "start_point": {"type": "array", "description": "Start point coordinates [x, y, z]", "items": {"type": "number"}, "minItems": 2, "maxItems": 3},
+                        "end_point": {"type": "array", "description": "End point coordinates [x, y, z]", "items": {"type": "number"}, "minItems": 2, "maxItems": 3},
+                        "text_position": {"type": "array", "description": "Text position coordinates [x, y, z] (optional)", "items": {"type": "number"}, "minItems": 2, "maxItems": 3},
+                        "textheight": {"type": "number", "description": "Dimension text height (optional)"},
+                        "layer": {"type": "string", "description": "Layer name (optional)"},
+                        "color": {"type": "string", "description": "Color name (optional)"}
                     },
                     "required": ["start_point", "end_point"],
                 },
@@ -825,11 +899,11 @@ async def main():
 
             types.Tool(
                 name="save_drawing",
-                description="保存当前图纸",
+                description="Save the current drawing",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "file_path": {"type": "string", "description": "保存路径"}
+                        "file_path": {"type": "string", "description": "Save path"}
                     },
                     "required": ["file_path"],
                 },
@@ -837,11 +911,11 @@ async def main():
 
             types.Tool(
                 name="process_command",
-                description="处理自然语言命令并转换为CAD操作",
+                description="Process a natural language command and convert it to a CAD operation",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "command": {"type": "string", "description": "自然语言命令"}
+                        "command": {"type": "string", "description": "Natural language command"}
                     },
                     "required": ["command"],
                 },
@@ -852,10 +926,10 @@ async def main():
     async def handle_call_tool(
         name: str, arguments: dict[str, Any] | None
     ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-        """处理工具执行请求"""
+        """Handle a tool execution request"""
         try:
             if not arguments:
-                raise ValueError("缺少参数")
+                raise ValueError("Missing parameters")
 
             if name == "draw_line":
                 start_point = arguments.get("start_point")
@@ -864,13 +938,13 @@ async def main():
                 color = arguments.get("color") 
                 lineweight = arguments.get("lineweight")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
                 if not start_point or not end_point:
-                    raise ValueError("缺少起点或终点坐标")
+                    raise ValueError("Missing start or end point coordinates")
                 
                 
                 result = cad_service.draw_line(start_point, end_point, layer, color, lineweight)
@@ -883,13 +957,13 @@ async def main():
                 color = arguments.get("color")
                 lineweight = arguments.get("lineweight")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
                 if not center or radius is None:
-                    raise ValueError("缺少圆心坐标或半径")
+                    raise ValueError("Missing center coordinates or radius")
                 
                 
                 result = cad_service.draw_circle(center, radius, layer, color, lineweight)
@@ -904,24 +978,24 @@ async def main():
                 color = arguments.get("color")
                 lineweight = arguments.get("lineweight")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
-                # 详细检查每个参数并提供具体的错误信息
+                # Check each parameter and provide a specific error message
                 error_msgs = []
                 if not center:
-                    error_msgs.append("中心点坐标")
+                    error_msgs.append("Center coordinates")
                 if radius is None:
-                    error_msgs.append("半径")
+                    error_msgs.append("Radius")
                 if start_angle is None:
-                    error_msgs.append("起始角度")
+                    error_msgs.append("Start angle")
                 if end_angle is None:
-                    error_msgs.append("结束角度")
+                    error_msgs.append("End angle")
                 
                 if error_msgs:
-                    raise ValueError(f"缺少必要参数: {', '.join(error_msgs)}")                
+                    raise ValueError(f"Missing required parameters: {', '.join(error_msgs)}")
                 
                 result = cad_service.draw_arc(center, radius, start_angle, end_angle, layer, color, lineweight)
                 return [types.TextContent(type="text", text=str(result))]
@@ -935,22 +1009,22 @@ async def main():
                 color = arguments.get("color")
                 lineweight = arguments.get("lineweight")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
-                # 详细检查每个参数并提供具体的错误信息
+                # Check each parameter and provide a specific error message
                 error_msgs = []
                 if not center:
-                    error_msgs.append("中心点坐标")
+                    error_msgs.append("Center coordinates")
                 if major_axis is None:
-                    error_msgs.append("长轴")
+                    error_msgs.append("Major axis")
                 if minor_axis is None:
-                    error_msgs.append("短轴")
+                    error_msgs.append("Minor axis")
                 
                 if error_msgs:
-                    raise ValueError(f"缺少必要参数: {', '.join(error_msgs)}")
+                    raise ValueError(f"Missing required parameters: {', '.join(error_msgs)}")
                 
                 result = cad_service.draw_ellipse(center, major_axis, minor_axis, rotation, layer, color, lineweight)
                 return [types.TextContent(type="text", text=str(result))]
@@ -962,13 +1036,13 @@ async def main():
                 color = arguments.get("color")
                 lineweight = arguments.get("lineweight")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
                 if not points or len(points) < 2:
-                    raise ValueError("缺少点集或点数不足")                
+                    raise ValueError("Missing point list or too few points")
                 
                 result = cad_service.draw_polyline(points, closed, layer, color, lineweight)
                 return [types.TextContent(type="text", text=str(result))]
@@ -980,13 +1054,13 @@ async def main():
                 color = arguments.get("color")
                 lineweight = arguments.get("lineweight")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
                 if not corner1 or not corner2:
-                    raise ValueError("缺少角点坐标")                
+                    raise ValueError("Missing corner coordinates")
                 
                 result = cad_service.draw_rectangle(corner1, corner2, layer, color, lineweight)
                 return [types.TextContent(type="text", text=str(result))]
@@ -1000,13 +1074,13 @@ async def main():
                 layer = arguments.get("layer")
                 color = arguments.get("color")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
                 if not position or not text:
-                    raise ValueError("缺少插入点坐标或文本内容")
+                    raise ValueError("Missing insertion point coordinates or text content")
                 
                 result = cad_service.draw_text(position, text, height, rotation, layer, color)
                 return [types.TextContent(type="text", text=str(result))]
@@ -1019,13 +1093,13 @@ async def main():
                 layer = arguments.get("layer")
                 color = arguments.get("color")
                 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色
+                    color = color_rgb  # Prefer the color extracted from the command
                 
                 if not points or len(points) < 3:
-                    raise ValueError("缺少点集或点数不足，填充边界至少需要3个点")
+                    raise ValueError("Missing point list or too few points; a hatch boundary requires at least 3 points")
                 
                 result = cad_service.draw_hatch(points, pattern_name, scale, layer, color)
                 return [types.TextContent(type="text", text=str(result))]
@@ -1034,7 +1108,7 @@ async def main():
                 file_path = arguments.get("file_path")
                 
                 if not file_path:
-                    raise ValueError("缺少保存路径")
+                    raise ValueError("Missing save path")
                 
                 result = cad_service.save_drawing(file_path)
                 return [types.TextContent(type="text", text=str(result))]
@@ -1047,20 +1121,20 @@ async def main():
                 color = arguments.get("color")
                 textheight = arguments.get("textheight")                
 
-                # 尝试从命令中提取颜色名称并转换为RGB值
+                # Try to extract a color name from the command and convert it to an RGB value
                 color_rgb = cad_service.nlp_processor.extract_color_from_command(color)
                 if color_rgb is not None:
-                    color = color_rgb  # 优先使用从命令中提取的颜色                
+                    color = color_rgb  # Prefer the color extracted from the command
 
-                # 详细检查每个参数并提供具体的错误信息
+                # Check each parameter and provide a specific error message
                 error_msgs = []
                 if not start_point:
-                    error_msgs.append("起点坐标")
+                    error_msgs.append("Start point coordinates")
                 if not end_point:
-                    error_msgs.append("终点坐标")                
+                    error_msgs.append("End point coordinates")
 
                 if error_msgs:
-                    raise ValueError(f"缺少必要参数: {', '.join(error_msgs)}")                
+                    raise ValueError(f"Missing required parameters: {', '.join(error_msgs)}")
 
                 result = cad_service.add_dimension(start_point, end_point, text_position, textheight, layer, color)
                 return [types.TextContent(type="text", text=str(result))]
@@ -1069,39 +1143,39 @@ async def main():
                 command = arguments.get("command")                
 
                 if not command:
-                    raise ValueError("缺少命令")                
+                    raise ValueError("Missing command")
 
                 result = cad_service.process_command(command)
                 return [types.TextContent(type="text", text=str(result))]
             else:
-                raise ValueError(f"未知工具: {name}")
+                raise ValueError(f"Unknown tool: {name}")
 
         except Exception as e:
-            return [types.TextContent(type="text", text=f"错误: {str(e)}")]
+            return [types.TextContent(type="text", text=f"Error: {str(e)}")]
 
     @server.list_prompts()
     async def handle_list_prompts() -> list[types.Prompt]:
-        logger.debug("处理 list_prompts 请求")
+        logger.debug("Handling list_prompts request")
         return [
             types.Prompt(
                 name="cad-assistant",
-                description="一个用于通过自然语言控制CAD的助手",
+                description="An assistant for controlling CAD through natural language",
                 arguments=[],
             )
         ]
 
     @server.get_prompt()
     async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
-        logger.debug(f"处理 get_prompt 请求，名称: {name}，参数: {arguments}")
+        logger.debug(f"Handling get_prompt request, name: {name}; arguments: {arguments}")
         if name != "cad-assistant":
-            logger.error(f"未知的提示: {name}")
-            raise ValueError(f"未知的提示: {name}")
+            logger.error(f"Unknown prompt: {name}")
+            raise ValueError(f"Unknown prompt: {name}")
 
         prompt = PROMPT_TEMPLATE
-        logger.debug("生成提示模板")
+        logger.debug("Generating the prompt template")
 
         return types.GetPromptResult(
-            description="CAD助手提示模板",
+            description="CAD assistant prompt template",
             messages=[
                 types.PromptMessage(
                     role="user",
@@ -1111,7 +1185,7 @@ async def main():
         )
 
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        logger.info("服务器正在使用 stdio 传输运行")
+        logger.info("Server is running with stdio transport")
         await server.run(
             read_stream,
             write_stream,

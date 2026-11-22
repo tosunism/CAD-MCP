@@ -1,6 +1,6 @@
 {
     "server": {
-        "name": "CAD MCP 服务器",
+        "name": "CAD MCP Server",
         "version": "1.0.0"
     },
     "cad": {

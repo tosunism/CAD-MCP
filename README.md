@@ -1,6 +1,6 @@
 # CAD-MCP Server (CAD Model Control Protocol Server)
 
-[English](/README_en.md) | [中文](/README_zh.md) 
+[English](/README_en.md) | [English version](/README_zh.md)
 
 ## Project Introduction
 
@@ -113,7 +113,7 @@ python src/server.py
 ```
 ![Cursor config](imgs/cursor_config.png)
 
-Note：The new version of cursor has also been changed to JSON configuration, please refer to the previous section
+Note: Newer versions of Cursor also use JSON configuration; see the previous section.
 
 ### MCP Inspector
 

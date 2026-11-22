@@ -61,7 +61,7 @@ The configuration file is located at `src/config.json` and contains the followin
         "version": "1.0.0"
     },
     "cad": {
-        "type": "AutoCAD",  
+        "type": "AutoCAD",
         "startup_wait_time": 20,
         "command_delay": 0.5
     },
@@ -73,7 +73,7 @@ The configuration file is located at `src/config.json` and contains the followin
 ```
 
 - **server**: Server name and version information
-- **cad**: 
+- **cad**:
   - `type`: CAD software type (AutoCAD, GCAD, GstarCAD, or ZWCAD)
   - `startup_wait_time`: CAD startup waiting time (seconds)
   - `command_delay`: Command execution delay (seconds)
@@ -90,7 +90,7 @@ python src/server.py
 ### Claude Desktop & Windsurf
 
 ```bash
-# add to claude_desktop_config.json. Note: use your path  
+# add to claude_desktop_config.json. Note: use your path
 {
     "mcpServers": {
         "CAD": {
@@ -107,16 +107,16 @@ python src/server.py
 ### Cursor
 
 ```bash
-# Add according to the following diagram Cursor MCP. Note: use your path  
+# Add according to the following diagram Cursor MCP. Note: use your path
 ```
 ![Cursor config](imgs/cursor_config.png)
 
-Note：The new version of cursor has also been changed to JSON configuration, please refer to the previous section
+Note:The new version of cursor has also been changed to JSON configuration, please refer to the previous section
 
 ### MCP Inspector
 
 ```bash
-# Note: use your path  
+# Note: use your path
 npx -y @modelcontextprotocol/inspector python C:\\cad-mcp\\src\\server.py
 ```
 

@@ -5,45 +5,45 @@ import os
 import json
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-# 直接读取config.json文件
+# Read config.json directly
 config_path = os.path.join(os.path.dirname(__file__), 'config.json')
 with open(config_path, 'r', encoding='utf-8') as f:
     config = json.load(f)
 
 try:
     import win32com.client
-    # pythoncom是pywin32的一部分，不需要单独安装
+    # pythoncom is included with pywin32 and does not need to be installed separately
     import pythoncom
 except ImportError:
-    logging.error("无法导入win32com.client或pythoncom，请确保已安装pywin32库")
+    logging.error("Could not import win32com.client or pythoncom. Make sure pywin32 is installed.")
     raise
 
 logger = logging.getLogger('cad_controller')
 
 class CADController:
-    """CAD控制器类，负责与CAD应用程序交互"""
+    """CAD controller for interacting with the CAD application"""
     
     def __init__(self):
-        """初始化CAD控制器"""
+        """Initialize the CAD controller"""
         self.app = None
         self.doc = None
-        self.entities = {}  # 存储已创建图形的实体引用，用于后续修改
-        # 从配置文件加载参数
+        self.entities = {}  # Store references to created drawing entities for later modification
+        # Load settings from the configuration file
         self.startup_wait_time = config["cad"]["startup_wait_time"]
         self.command_delay = config["cad"]["command_delay"]
-        # 获取CAD类型
+        # Get the CAD application type
         self.cad_type = config["cad"]["type"]
-        # 有效的线宽值列表
+        # List of valid lineweight values
         self.valid_lineweights = [0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200, 211]
-        logger.info("CAD控制器已初始化")
-    
+        logger.info("CAD controller initialized")
+
     def start_cad(self) -> bool:
-        """启动CAD并创建或打开一个文档"""
+        """Start CAD and create or open a document"""
         try:
-            # 初始化COM
+            # Initialize COM
             pythoncom.CoInitialize()
             
-            # 存储旧实例引用（如果有）以便后续清理
+            # Keep a reference to the previous instance, if any, for cleanup
             old_app = None
             if self.app is not None:
                 old_app = self.app
@@ -51,7 +51,7 @@ class CADController:
                 self.doc = None
             
             try:
-                # 根据配置的CAD类型选择不同的应用程序标识符
+                # Select the application identifier based on the configured CAD type
                 app_id = "AutoCAD.Application"
                 app_name = "AutoCAD"
                 
@@ -60,55 +60,55 @@ class CADController:
                     app_name = "AutoCAD"
                 elif self.cad_type.lower() == "gcad":
                     app_id = "GCAD.Application"
-                    app_name = "浩辰CAD"
+                    app_name = "GstarCAD"
                 elif self.cad_type.lower() == "gstarcad":
                     app_id = "GCAD.Application"
-                    app_name = "浩辰CAD"
+                    app_name = "GstarCAD"
                 elif self.cad_type.lower() == "zwcad":
                     app_id = "ZWCAD.Application"
-                    app_name = "中望CAD"
+                    app_name = "ZWCAD"
                 
-                # 尝试连接到已运行的CAD实例
-                logger.info(f"尝试连接现有{app_name}实例...")
+                # Try to connect to a running CAD instance
+                logger.info(f"Trying to connect to the existing {app_name} instance...")
                 try:
                     self.app = win32com.client.GetActiveObject(app_id)
-                    logger.info(f"成功连接到已运行的{app_name}实例")
+                    logger.info(f"Connected to the running {app_name} instance")
                 except Exception as e:
-                    logger.info(f"未找到运行中的{app_name}实例，将尝试启动新实例: {str(e)}")  
+                    logger.info(f"No running {app_name} instance found; trying to start a new instance: {str(e)}")
                     raise
 
-                # 已在上面的代码中处理
+                # Already handled above
                 
-                # 如果当前没有文档，创建一个新文档
+                # Create a new document if there is no current document
                 try:
                     if self.app.Documents.Count == 0:
-                        logger.info("创建新文档...")
+                        logger.info("Creating a new document...")
                         self.doc = self.app.Documents.Add()
                     else:
-                        logger.info("获取活动文档...")
+                        logger.info("Getting the active document...")
                         self.doc = self.app.ActiveDocument
                 except Exception as doc_ex:
-                    # 如果获取文档失败，强制创建新文档
-                    logger.warning(f"获取文档失败，尝试创建新文档: {str(doc_ex)}")
+                    # Force creation of a new document if retrieving the document fails
+                    logger.warning(f"Failed to retrieve the document; trying to create a new one: {str(doc_ex)}")
                     try:
-                        # 关闭所有打开的文档
+                        # Close all open documents
                         for i in range(self.app.Documents.Count):
                             try:
-                                self.app.Documents.Item(0).Close(False)  # 不保存
+                                self.app.Documents.Item(0).Close(False)  # Do not save
                             except:
                                 pass
                         
-                        # 创建新文档
+                        # Create a new document.
                         self.doc = self.app.Documents.Add()
                     except Exception as new_doc_ex:
-                        logger.error(f"创建新文档失败: {str(new_doc_ex)}")
+                        logger.error(f"Failed to create a new document: {str(new_doc_ex)}")
                         raise
                     
             except Exception as app_ex:
-                # 如果连接失败，启动一个新实例
-                logger.info(f"连接失败，正在启动新的CAD实例: {str(app_ex)}")
+                # Start a new instance if the connection fails.
+                logger.info(f"Connection failed; starting a new CAD instance: {str(app_ex)}")
                 try:
-                    # 根据配置的CAD类型启动相应的应用程序
+                    # Start the application that matches the configured CAD type
                     app_id = "AutoCAD.Application"
                     app_name = "AutoCAD"
                     
@@ -117,51 +117,51 @@ class CADController:
                         app_name = "AutoCAD"
                     elif self.cad_type.lower() == "gcad":
                         app_id = "GCAD.Application"
-                        app_name = "浩辰CAD"
+                        app_name = "GstarCAD"
                     elif self.cad_type.lower() == "gstarcad":
                         app_id = "GCAD.Application"
-                        app_name = "浩辰CAD"
+                        app_name = "GstarCAD"
                     elif self.cad_type.lower() == "zwcad":
                         app_id = "ZWCAD.Application"
-                        app_name = "中望CAD"
+                        app_name = "ZWCAD"
                     
-                    logger.info(f"正在启动{app_name}实例...")
+                    logger.info(f"Starting {app_name} instance...")
                     self.app = win32com.client.Dispatch(app_id)
                     self.app.Visible = True
                     
-                    # 等待CAD启动
-                    time.sleep(self.startup_wait_time)  # 使用配置的等待时间
+                    # Wait for CAD to start
+                    time.sleep(self.startup_wait_time)  # Use the configured wait time
                     
-                    # 创建新文档
-                    logger.info("尝试创建新文档...")
+                    # Create a new document.
+                    logger.info("Trying to create a new document...")
                     # self.doc = self.app.Documents.Add()
                     self.doc = self.app.ActiveDocument
                 except Exception as new_app_ex:
-                    logger.error(f"启动新CAD实例失败: {str(new_app_ex)}")
+                    logger.error(f"Failed to start a new CAD instance: {str(new_app_ex)}")
                     raise
             
-            # 额外安全检查和等待
-            time.sleep(2)  # 给CAD更多时间处理文档创建
+            # Perform an additional safety check and wait
+            time.sleep(2)  # Give CAD more time to create the document
             
             if self.doc is None:
-                raise Exception("无法获取有效的Document对象")
+                raise Exception("Could not obtain a valid Document object")
             
-            # 尝试读取文档属性以验证其有效性
+            # Read a document property to verify that it is valid
             try:
                 name = self.doc.Name
-                logger.info(f"文档名称: {name}")
+                logger.info(f"Document name: {name}")
             except Exception as name_ex:
-                logger.error(f"无法读取文档名称: {str(name_ex)}")
-                raise Exception("文档对象无效")
+                logger.error(f"Could not read the document name: {str(name_ex)}")
+                raise Exception("The document object is invalid")
             
-            logger.info("CAD已成功启动和准备")
+            logger.info("CAD started and is ready")
             return True
             
         except Exception as e:
-            logger.error(f"启动CAD失败: {str(e)}")
+            logger.error(f"Failed to start CAD: {str(e)}")
             return False
         finally:
-            # 清理旧实例
+            # Clean up the previous instance.
             if old_app is not None:
                 try:
                     del old_app
@@ -170,446 +170,490 @@ class CADController:
     
         
     def is_running(self) -> bool:
-        """检查CAD是否正在运行"""
+        """Check whether CAD is running"""
         return self.app is not None and self.doc is not None
     
     def save_drawing(self, file_path: str) -> bool:
-        """保存当前图纸到指定路径"""
+        """Save the current drawing to the specified path"""
         if not self.is_running():
-            logger.error("CAD未运行，无法保存图纸")
+            logger.error("CAD is not running; cannot save the drawing")
             return False
             
         try:
-            # 确保目录存在
+            # Ensure the directory exists
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             
-            # 保存文件
+            # Save the file
             self.doc.SaveAs(file_path)
-            logger.info(f"图纸已保存到: {file_path}")
+            logger.info(f"Drawing saved to: {file_path}")
            
             return True
         except Exception as e:
-            logger.error(f"保存图纸失败: {str(e)}")
+            logger.error(f"Failed to save the drawing: {str(e)}")
             return False
     
     def refresh_view(self) -> None:
-        """刷新CAD视图"""
+        """Refresh the CAD view"""
         if self.is_running():
             try:
                 self.doc.Regen(1)  # acAllViewports = 1
             except Exception as e:
-                logger.error(f"刷新视图失败: {str(e)}")
+                logger.error(f"Failed to refresh the view: {str(e)}")
     
     def validate_lineweight(self, lineweight) -> int:
-        """验证并返回有效的线宽值
+        """Validate and return a valid lineweight
         
-        如果提供的线宽值不在有效值列表中，则返回默认值0
+        Return the default value 0 if the supplied lineweight is not valid
         
         Args:
-            lineweight: 要验证的线宽值
+            lineweight: The lineweight to validate
             
         Returns:
-            有效的线宽值
+            A valid lineweight value
         """
         if lineweight is None:
             return None
             
-        # 检查线宽是否在有效值列表中
+        # Check whether the lineweight is in the list of valid values
         if lineweight in self.valid_lineweights:
             return lineweight
         else:
-            logger.warning(f"线宽值 {lineweight} 无效，将使用默认值 0")
+            logger.warning(f"Lineweight value {lineweight} is invalid; using the default value 0")
             return 0
-    
+
+    ################################################
+    def rename_blocks(self, prefix="Block", filter_layer=None, filter_block_name_prefix=None):
+        """Rename blocks by given prefix, with optional filters"""
+        try:
+            block_table = self.doc.Blocks
+            count = 1
+
+            for block in block_table:
+                if block.IsLayout or block.Name.startswith("*"):
+                    continue
+
+                # Filter by block name prefix if specified
+                if filter_block_name_prefix and not block.Name.startswith(filter_block_name_prefix):
+                    continue
+
+                # Filter by layer if specified (check all entities in block)
+                if filter_layer:
+                    has_layer = any(entity.Layer == filter_layer for entity in block)
+                    if not has_layer:
+                        continue
+
+                new_name = f"{prefix}-{count}"
+                self.doc.Blocks.Item(block.Name).Name = new_name
+                count += 1
+
+            self.refresh_view()
+            return True
+
+        except Exception as e:
+            logger.error(f"Error renaming blocks: {e}")
+            return False
+    ################################################
+
     def draw_line(self, start_point: Tuple[float, float, float], 
                  end_point: Tuple[float, float, float], layer: str = None, color: int = None, lineweight=None) -> bool:
-        """绘制直线"""
+        """Draw a line"""
         if not self.is_running():
             return False
             
         try:
-            # 确保点是三维的
+            # Ensure the point has three coordinates
             if len(start_point) == 2:
                 start_point = (start_point[0], start_point[1], 0)
             if len(end_point) == 2:
                 end_point = (end_point[0], end_point[1], 0)
       
-            # 使用VARIANT包装坐标点数据
+            # Wrap the point coordinates in a VARIANT
             start_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                [start_point[0], start_point[1], start_point[2]])
             end_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                              [end_point[0], end_point[1], end_point[2]])
             
-            # 添加直线
+            # Add the line
             line = self.doc.ModelSpace.AddLine(start_array, end_array)
             
-            # 如果指定了图层，设置图层
+            # Set the layer if one was specified
             if layer:
-                # 确保图层存在
+                # Ensure the layer exists
                 self.create_layer(layer)
-                # 设置实体的图层
+                # Set the entity layer
                 line.Layer = layer
          
-            # 如果指定了颜色，设置颜色
+            # Set the color if one was specified
             if color is not None:
                 line.Color = color
 
             if lineweight is not None:
                 line.LineWeight = self.validate_lineweight(lineweight)
             
-            # 刷新视图
+            # Refresh the view
             self.refresh_view()
 
-            logger.debug(f"已绘制直线: 起点{start_point}, 终点{end_point}, 图层{layer if layer else '默认'}, 颜色{color if color is not None else '默认'}")
+            logger.debug(f"Drew line: start={start_point}; end={end_point}; layer={layer if layer else 'default'}; color={color if color is not None else 'default'}")
             return line
             
         except Exception as e:
-            logger.error(f"绘制直线时出错: {str(e)}")
+            logger.error(f"Error drawing line: {str(e)}")
             return None
     
     def draw_circle(self, center: Tuple[float, float, float], 
                    radius: float, layer: str = None, color: int = None, lineweight=None) -> Any:
-        """绘制圆"""
+        """Draw a circle"""
         if not self.is_running():
             return None
             
         try:
-            # 确保点是三维的
+            # Ensure the point has three coordinates
             if len(center) == 2:
                 center = (center[0], center[1], 0)
             
-            # 使用VARIANT包装坐标点数据
+            # Wrap the point coordinates in a VARIANT
             center_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                [center[0], center[1], center[2]])
             
-            # 添加圆
+            # Add the circle
             circle = self.doc.ModelSpace.AddCircle(center_array, radius)
             
-            # 如果指定了图层，设置图层
+            # Set the layer if one was specified
             if layer:
-                # 确保图层存在
+                # Ensure the layer exists
                 self.create_layer(layer)
-                # 设置实体的图层
+                # Set the entity layer
                 circle.Layer = layer
             
-            # 如果指定了颜色，设置颜色
+            # Set the color if one was specified
             if color is not None:
                 circle.Color = color
 
             if lineweight is not None:
                 circle.LineWeight = self.validate_lineweight(lineweight)
             
-            # 刷新视图
+            # Refresh the view
             self.refresh_view()
             
-            logger.debug(f"已绘制圆: 中心{center}, 半径{radius}, 图层{layer if layer else '默认'}, 颜色{color if color is not None else '默认'}")
+            logger.debug(f"Drew circle: center={center}; radius={radius}; layer={layer if layer else 'default'}; color={color if color is not None else 'default'}")
             return circle
             
         except Exception as e:
-            logger.error(f"绘制圆时出错: {str(e)}")
+            logger.error(f"Error drawing circle: {str(e)}")
             return None
     
     def draw_arc(self, center: Tuple[float, float, float], 
                 radius: float, start_angle: float, end_angle: float, layer: str = None, color: int = None, lineweight=None) -> Any:
-        """绘制圆弧"""
+        """Draw an arc."""
         if not self.is_running():
             return None
             
         try:
-            # 确保点是三维的
+            # Ensure the point has three coordinates
             if len(center) == 2:
                 center = (center[0], center[1], 0)
                 
-            # 将角度转换为弧度
+            # Convert the angles to radians
             start_rad = math.radians(start_angle)
             end_rad = math.radians(end_angle)
             
-            # 使用VARIANT包装坐标点数据
+            # Wrap the point coordinates in a VARIANT
             center_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                [center[0], center[1], center[2]])
             
-            # 添加圆弧
+            # Add the arc.
             arc = self.doc.ModelSpace.AddArc(center_array, radius, start_rad, end_rad)
             
-            # 如果指定了图层，设置图层
+            # Set the layer if one was specified
             if layer:
-                # 确保图层存在
+                # Ensure the layer exists
                 self.create_layer(layer)
-                # 设置实体的图层
+                # Set the entity layer
                 arc.Layer = layer
             
-            # 如果指定了颜色，设置颜色
+            # Set the color if one was specified
             if color is not None:
                 arc.Color = color
 
             if lineweight is not None:
                 arc.LineWeight = self.validate_lineweight(lineweight)
             
-            # 刷新视图
+            # Refresh the view
             self.refresh_view()
             
-            logger.debug(f"已绘制圆弧: 中心{center}, 半径{radius}, 起始角度{start_angle}, 结束角度{end_angle}, 图层{layer if layer else '默认'}, 颜色{color if color is not None else '默认'}")
+            logger.debug(f"Drew arc: center={center}; radius={radius}; start angle={start_angle}; end angle={end_angle}; layer={layer if layer else 'default'}; color={color if color is not None else 'default'}")
             return arc
         except Exception as e:
-            logger.error(f"绘制圆弧失败: {str(e)}")
+            logger.error(f"Failed to draw arc: {str(e)}")
             return None
  
     def draw_ellipse(self, center: Tuple[float, float, float], 
                     major_axis: float, minor_axis: float, rotation: float = 0, 
                     layer: str = None, color: int = None, lineweight=None) -> Any:
-        """绘制椭圆"""
+        """Draw an ellipse"""
         if not self.is_running():
             return None
             
         try:
-            # 确保点是三维的
+            # Ensure the point has three coordinates
             if len(center) == 2:
                 center = (center[0], center[1], 0)
             
             if rotation is None:
                 rotation = 0
 
-            # 将旋转角度转换为弧度
+            # Convert the rotation angle to radians
             rotation_rad = math.radians(rotation)
             
-            # 使用VARIANT包装坐标点数据
+            # Wrap the point coordinates in a VARIANT
             center_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                [center[0], center[1], center[2]])
             
-            # 计算椭圆的主轴向量
+            # Calculate the ellipse major-axis vector
             major_x = major_axis * math.cos(rotation_rad)
             major_y = major_axis * math.sin(rotation_rad)
             major_vector = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                [major_x, major_y, 0])
             
-            # 添加椭圆
+            # Add the ellipse
             ellipse = self.doc.ModelSpace.AddEllipse(center_array, major_vector, minor_axis / major_axis)
             
-            # 如果指定了图层，设置图层
+            # Set the layer if one was specified
             if layer:
-                # 确保图层存在
+                # Ensure the layer exists
                 self.create_layer(layer)
-                # 设置实体的图层
+                # Set the entity layer
                 ellipse.Layer = layer
             
-            # 如果指定了颜色，设置颜色
+            # Set the color if one was specified
             if color is not None:
                 ellipse.Color = color
 
             if lineweight is not None:
                 ellipse.LineWeight = self.validate_lineweight(lineweight)
             
-            # 刷新视图
+            # Refresh the view
             self.refresh_view()
             
-            logger.debug(f"已绘制椭圆: 中心{center}, 长轴{major_axis}, 短轴{minor_axis}, 旋转角度{rotation}, 图层{layer if layer else '默认'}, 颜色{color if color is not None else '默认'}")
+            logger.debug(f"Drew ellipse: center={center}; major axis={major_axis}; minor axis={minor_axis}; rotation={rotation}; layer={layer if layer else 'default'}; color={color if color is not None else 'default'}")
             return ellipse
         except Exception as e:
-            logger.error(f"绘制椭圆失败: {str(e)}")
+            logger.error(f"Failed to draw ellipse: {str(e)}")
             return None
     
     def draw_polyline(self, points: List[Tuple[float, float, float]], closed: bool = False, layer: str = None, color: int = None, lineweight=None) -> Any:
-        """绘制多段线"""
+        """Draw a polyline."""
         if not self.is_running():
             return None
             
         try:
-            # 确保所有点都是三维的
+            # Ensure all points have three coordinates
             processed_points = []
             for point in points:
                 if len(point) == 2:
                     processed_points.append((point[0], point[1], 0))
                 else:
                     processed_points.append(point)
+
+            # Closed polylines connect the last vertex to the first automatically.
+            # Remove an explicitly repeated endpoint to avoid a redundant vertex.
+            if closed and len(processed_points) > 1 and processed_points[-1] == processed_points[0]:
+                processed_points.pop()
+
+            # Lightweight polylines use 2D OCS vertex coordinates. Keep the
+            # shared Z value as the entity elevation.
+            elevations = [point[2] for point in processed_points]
+            if any(z != elevations[0] for z in elevations[1:]):
+                raise ValueError("A lightweight polyline requires all vertices to share the same Z elevation")
+            point_array = win32com.client.VARIANT(
+                pythoncom.VT_ARRAY | pythoncom.VT_R8,
+                [coord for point in processed_points for coord in point[:2]],
+            )
+
+            # Add a 2D lightweight polyline.
+            polyline = self.doc.ModelSpace.AddLightWeightPolyline(point_array)
+            polyline.Elevation = elevations[0]
             
-            # 创建点数组
-            point_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
-                                                [coord for point in processed_points for coord in point])
-            
-            # 添加多段线
-            polyline = self.doc.ModelSpace.AddPolyline(point_array)
-            
-            # 如果需要闭合
+            # Close the polyline if requested
             if closed and len(processed_points) > 2:
                 polyline.Closed = True
             
-            # 如果指定了图层，设置图层
+            # Set the layer if one was specified
             if layer:
-                # 确保图层存在
+                # Ensure the layer exists
                 self.create_layer(layer)
-                # 设置实体的图层
+                # Set the entity layer
                 polyline.Layer = layer
             
-            # 如果指定了颜色，设置颜色
+            # Set the color if one was specified
             if color is not None:
                 polyline.Color = color
 
             if lineweight is not None:
                 polyline.LineWeight = self.validate_lineweight(lineweight)
             
-            # 刷新视图
+            # Refresh the view
             self.refresh_view()
 
-            logger.debug(f"已绘制多段线: {len(points)}个点, {'闭合' if closed else '不闭合'}, 图层{layer if layer else '默认'}, 颜色{color if color is not None else '默认'}")
+            logger.debug(f"Drew polyline with {len(points)} points, {'closed' if closed else 'open'}; layer={layer if layer else 'default'}; color={color if color is not None else 'default'}")
             return polyline
         except Exception as e:
-            logger.error(f"绘制多段线时出错: {str(e)}")
+            logger.error(f"Error drawing polyline: {str(e)}")
             return None
     
     def draw_rectangle(self, corner1: Tuple[float, float, float], 
                       corner2: Tuple[float, float, float], layer: str = None, color: int = None, lineweight=None) -> Any:
-        """绘制矩形"""
+        """Draw a rectangle"""
         if not self.is_running():
             return None
             
         try:
-            # 确保点是三维的
+            # Ensure the point has three coordinates
             if len(corner1) == 2:
                 corner1 = (corner1[0], corner1[1], 0)
             if len(corner2) == 2:
                 corner2 = (corner2[0], corner2[1], 0)
                 
-            # 计算矩形的四个角点
+            # Calculate the four rectangle corners
             x1, y1, z1 = corner1
             x2, y2, z2 = corner2
             
-            # 创建矩形的四个点
+            # Create the four rectangle corners.
             points = [
                 (x1, y1, z1),
                 (x2, y1, z1),
                 (x2, y2, z1),
-                (x1, y2, z1),
-                (x1, y1, z1)  # 闭合矩形
+                (x1, y2, z1)
             ]
             
-            # 使用多段线绘制矩形
+            # Draw the rectangle as a polyline.
             return self.draw_polyline(points, True, layer, color, lineweight)
         except Exception as e:
-            logger.error(f"绘制矩形时出错: {str(e)}")
+            logger.error(f"Error drawing rectangle: {str(e)}")
             return None
     
     def draw_text(self, position: Tuple[float, float, float], 
                  text: str, height: float = 2.5, rotation: float = 0, layer: str = None, color: int = None) -> Any:
-        """添加文本"""
+        """Add text"""
         if not self.is_running():
             return None
             
         try:
-            # 确保点是三维的
+            # Ensure the point has three coordinates
             if len(position) == 2:
                 position = (position[0], position[1], 0)
             
-            # 使用VARIANT包装坐标点数据
+            # Wrap the point coordinates in a VARIANT
             position_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                  [position[0], position[1], position[2]])
                 
-            # 添加文本
+            # Add text
             text_obj = self.doc.ModelSpace.AddText(text, position_array, height)
             
-            # 设置旋转角度
+            # Set the rotation angle
             if rotation != 0:
                 text_obj.Rotation = math.radians(rotation)
             
-            # 如果指定了图层，设置图层
+            # Set the layer if one was specified
             if layer:
-                # 确保图层存在
+                # Ensure the layer exists
                 self.create_layer(layer)
-                # 设置实体的图层
+                # Set the entity layer
                 text_obj.Layer = layer
             
-            # 如果指定了颜色，设置颜色
+            # Set the color if one was specified
             if color is not None:
                 text_obj.Color = color
             
-            # 刷新视图
+            # Refresh the view
             self.refresh_view()
                                 
-            logger.debug(f"已添加文本: '{text}', 位置{position}, 高度{height}, 旋转{rotation}度, 图层{layer if layer else '默认'}, 颜色{color if color is not None else '默认'}")
+            logger.debug(f"Added text '{text}'; position={position}; height={height}; rotation={rotation} degrees; layer={layer if layer else 'default'}; color={color if color is not None else 'default'}")
             return text_obj
         except Exception as e:
-            logger.error(f"添加文本时出错: {str(e)}")
+            logger.error(f"Error adding text: {str(e)}")
             return None
     
     def draw_hatch(self, points: List[Tuple[float, float, float]], 
                   pattern_name: str = "SOLID", scale: float = 1.0, layer: str = None, color: int = None) -> Any:
-        """绘制填充图案
+        """Draw a hatch pattern
         
         Args:
-            points: 填充边界的点集，每个点为二维或三维坐标元组
-            pattern_name: 填充图案名称，默认为"SOLID"(实体填充)
-            scale: 填充图案比例，默认为1.0
-            layer: 图层名称，如果为None则使用当前图层
-            color: 颜色索引，如果为None则使用默认颜色
+            points: Boundary points, each a 2D or 3D coordinate tuple.
+            pattern_name: Hatch pattern name; defaults to "SOLID" (solid fill).
+            scale: Hatch pattern scale; defaults to 1.0.
+            layer: Layer name; uses the current layer when None
+            color: Color index; uses the default color when None.
             
         Returns:
-            成功返回填充对象，失败返回None
+            Returns the hatch object on success, or None on failure
         """
         if not self.is_running():
             return None
             
         try:
-            # 确保所有点都是有效的
+            # Ensure all points are valid.
             if not points or len(points) < 3:
-                logger.error("创建填充失败: 至少需要3个点来定义填充边界")
+                logger.error("Failed to create hatch: at least 3 points are required to define the boundary")
                 return None
                 
-            # 创建闭合多段线作为边界
+            # Create a closed polyline as the boundary.
             closed_polyline = self.draw_polyline(points, closed=True, layer=layer)
             if not closed_polyline:
-                logger.error("创建填充失败: 无法创建边界多段线")
+                logger.error("Failed to create hatch: could not create the boundary polyline")
                 return None
                 
-            # 创建填充对象 (0表示正常填充，True表示关联边界)
+            # Create the hatch object (0 means normal fill; True associates the boundary)
             hatch = self.doc.ModelSpace.AddHatch(0, pattern_name, True)
                 
-            # 添加外部边界循环
-            # 使用VARIANT包装对象数组
+            # Add the outer boundary loop
+            # Wrap the object array in a VARIANT
             object_ids = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [closed_polyline])
             hatch.AppendOuterLoop(object_ids)
                 
-            # 设置填充图案比例
+            # Set the hatch pattern scale
             hatch.PatternScale = scale
                 
-            # 如果指定了图层，设置图层
+            # Set the layer if one was specified
             if layer:
-                # 确保图层存在
+                # Ensure the layer exists
                 self.create_layer(layer)
-                # 设置实体的图层
+                # Set the entity layer
                 hatch.Layer = layer
                 
-            # 如果指定了颜色，设置颜色
+            # Set the color if one was specified
             if color is not None:
                 hatch.Color = color
                                 
-            # 更新填充 (计算填充区域)
+            # Update the hatch (calculate the filled area)
             hatch.Evaluate()
             
-            # 刷新视图
+            # Refresh the view
             self.refresh_view()
                 
-            logger.debug(f"已创建填充: 图案 {pattern_name}, 比例 {scale}, 图层{layer if layer else '默认'}, 颜色{color if color is not None else '默认'}")
+            logger.debug(f"Created hatch: pattern={pattern_name}; scale={scale}; layer={layer if layer else 'default'}; color={color if color is not None else 'default'}")
             return hatch
         except Exception as e:
-            logger.error(f"创建填充时出错: {str(e)}")
+            logger.error(f"Error creating hatch: {str(e)}")
             return None
     
     def zoom_extents(self) -> bool:
-        """缩放视图以显示所有对象"""
+        """Zoom the view to show all objects"""
         if not self.is_running():
             return False
             
         try:
             self.doc.ActiveViewport.ZoomExtents()
-            logger.info("已缩放视图以显示所有对象")
+            logger.info("Zoomed the view to show all objects")
             return True
         except Exception as e:
-            logger.error(f"缩放视图时出错: {str(e)}")
+            logger.error(f"Error zooming the view: {str(e)}")
             return False
     
     def close(self) -> None:
-        """关闭CAD控制器"""
+        """Close the CAD controller"""
         try:
-            # 释放COM资源
+            # Release COM resources
             if self.app is not None:
                 del self.app
             pythoncom.CoUninitialize()
@@ -618,72 +662,72 @@ class CADController:
 
     
     def create_layer(self, layer_name: str) -> bool:    # , color: Union[int, Tuple[int, int, int]] = 7
-        """创建新图层
+        """Create a new layer
         
         Args:
-            layer_name: 图层名称
-            color: 颜色值，可以是CAD颜色索引(int)或RGB颜色值(tuple)
+            layer_name: Layer name
+            color: Color value: a CAD color index (int) or RGB value (tuple)
             
         Returns:
-            操作是否成功
+            Whether the operation succeeded
         """
         if not self.is_running():
             return False
         
         try:
-            # 检查图层是否已存在
+            # Check whether the layer already exists
             for i in range(self.doc.Layers.Count):
                 if self.doc.Layers.Item(i).Name == layer_name:
-                    # 图层已存在，激活它
+                    # The layer already exists; activate it
                     self.doc.ActiveLayer = self.doc.Layers.Item(i)
                     return True
                 
-            # 创建新图层
+            # Create a new layer
             new_layer = self.doc.Layers.Add(layer_name)
             
-            # 图层不设置颜色，设置里面的实体颜色
-            # # 设置颜色
+            # Do not set the layer color; set the color on its entities
+            # # Set the color
             # if isinstance(color, int):
-            #     # 使用颜色索引
+            #     # Use a color index
             #     new_layer.Color = color
             # elif isinstance(color, tuple) and len(color) == 3:
-            #     # 使用RGB值
+            #     # Use an RGB value
             #     r, g, b = color
-            #     # 设置TrueColor
+            #     # Set TrueColor
             #     new_layer.TrueColor = self._create_true_color(r, g, b)
             
-            # 设置为当前图层
+            # Set as the current layer
             self.doc.ActiveLayer = new_layer
-            logger.info(f"已创建新图层: {layer_name}")  #, 颜色: {color}
+            logger.info(f"Created new layer: {layer_name}")  # Color: {color}
             return True
         except Exception as e:
-            logger.error(f"创建图层时出错: {str(e)}")
+            logger.error(f"Error creating layer: {str(e)}")
             return False
 
     def add_dimension(self, start_point: Tuple[float, float, float], 
                      end_point: Tuple[float, float, float],
                      text_position: Tuple[float, float, float] = None, textheight: float = 5,layer: str = None, color: int=None) -> Any:
-            """添加线性标注"""
+            """Add a linear dimension"""
             if not self.is_running():
                 return None
             
             try:
-                # 确保点是三维的
+                # Ensure the point has three coordinates
                 if len(start_point) == 2:
                     start_point = (start_point[0], start_point[1], 0)
                 if len(end_point) == 2:
                     end_point = (end_point[0], end_point[1], 0)
                 
-                # 如果未提供文本位置，自动计算
+                # Calculate the text position automatically if none was provided
                 if text_position is None:
-                    # 在起点和终点之间的中点上方
+                    # Above the midpoint between the start and end points
                     mid_x = (start_point[0] + end_point[0]) / 2
                     mid_y = (start_point[1] + end_point[1]) / 2
                     text_position = (mid_x, mid_y + 5, 0)
                 elif len(text_position) == 2:
                     text_position = (text_position[0], text_position[1], 0)
                 
-                # 使用VARIANT包装坐标点数据
+                # Wrap the point coordinates in a VARIANT
                 start_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                  [start_point[0], start_point[1], start_point[2]])
                 end_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
@@ -691,30 +735,30 @@ class CADController:
                 text_pos_array = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, 
                                                      [text_position[0], text_position[1], text_position[2]])
                 
-                # 添加对齐标注
+                # Add the aligned dimension
                 dimension = self.doc.ModelSpace.AddDimAligned(start_array, end_array, text_pos_array)
                 
-                # 设置文字高度
+                # Set the text height.
                 if textheight is not None:
                     dimension.TextHeight = textheight
                 
-                # 如果指定了图层，设置图层
+                # Set the layer if one was specified
                 if layer:
-                    # 确保图层存在
+                    # Ensure the layer exists
                     self.create_layer(layer)
-                    # 设置实体的图层
+                    # Set the entity layer
                     dimension.Layer = layer
 
-                # 如果指定了颜色，设置颜色
+                # Set the color if one was specified
                 if color is not None:
                     dimension.Color = color
                 
-                # 刷新视图
+                # Refresh the view
                 self.refresh_view()
 
-                logger.info(f"已添加标注: 从 {start_point} 到 {end_point}, 图层{layer if layer else '默认'}")
+                logger.info(f"Added dimension from {start_point} to {end_point}; layer={layer if layer else 'default'}")
                 return dimension
             except Exception as e:
-                logger.error(f"添加标注时出错: {str(e)}")
+                logger.error(f"Error adding dimension: {str(e)}")
                 return None
 

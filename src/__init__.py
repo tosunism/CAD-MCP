@@ -1,12 +1,12 @@
 """
-CAD MCP 服务包
+CAD MCP package
 """
 
 import os
 import json
 import logging
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -14,18 +14,18 @@ logging.basicConfig(
 
 logger = logging.getLogger('cad_mcp')
 
-# 加载配置
+# Load configuration
 def load_config():
-    """加载配置文件"""
+    """Load the configuration file."""
     config_path = os.path.join(os.path.dirname(__file__), 'config.json')
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
-        logger.info("配置文件加载成功")
+        logger.info("Configuration file loaded successfully")
         return config
     except Exception as e:
-        logger.error(f"加载配置文件失败: {str(e)}")
-        # 返回默认配置
+        logger.error(f"Failed to load configuration file: {str(e)}")
+        # Return the default configuration.
         return {
             "server": {
                 "name": "CAD MCP Server",
@@ -45,7 +45,7 @@ def load_config():
             }
         }
 
-# 导出配置
+# Export configuration
 config = load_config()
 
 __all__ = [
