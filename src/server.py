@@ -15,9 +15,12 @@ sys.dont_write_bytecode = True
 
 # Use absolute imports
 
-from nlp_processor import NLPProcessor
-
-from cad_controller import CADController
+try:
+    from nlp_processor import NLPProcessor
+    from cad_controller import CADController
+except ImportError:
+    from .nlp_processor import NLPProcessor
+    from .cad_controller import CADController
 
 
 # Configure UTF-8 encoding for Windows
@@ -27,12 +30,13 @@ if sys.platform == "win32" and os.environ.get('PYTHONIOENCODING') is None:
     sys.stderr.reconfigure(encoding="utf-8")
 
 # Configure logging
+_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cad_mcp.log')
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('cad_mcp.log', encoding='utf-8')
+        logging.FileHandler(_log_path, encoding='utf-8')
     ]
 )
 
@@ -65,6 +69,12 @@ This server provides the following basic drawing tools:
 "draw_hatch": Draw a hatch in CAD
 "save_drawing": Save the current drawing
 "add_dimension": Add a linear dimension in CAD
+"list_objects": List and filter objects in the drawing (by type, layer, block name, space, color)
+"get_drawing_summary": Summarize entity counts by type, layer, and block name
+"list_blocks": List block definitions and instance counts in the drawing
+"list_layers": List layers and their properties in the drawing
+"get_object_by_handle": Inspect full details of a CAD object by its handle
+"rename_blocks": Rename user-defined blocks with a prefix and optional filters
 "process_command": Process a natural language command and convert it to a CAD operation
 
 </cad-mcp>
@@ -114,17 +124,21 @@ class CADService:
 
     ############################################ addition
 
-    def rename_all_blocks(self, prefix: str = "Pen") -> List[str]:
+    def rename_all_blocks(self, prefix: str = "Pen") -> List[tuple]:
         """Rename all user-defined blocks in the drawing to Pen-1, Pen-2, ..."""
         if not self.controller.is_running():
             self.start_cad()
 
-        renamed = []
-        index = 1
+        candidates = []
         for block in self.controller.doc.Blocks:
             name = block.Name
-            if name.startswith("*"):  # Skip system blocks like *Model_Space
+            if getattr(block, "IsLayout", False) or name.startswith("*"):
                 continue
+            candidates.append(name)
+
+        renamed = []
+        index = 1
+        for name in candidates:
             new_name = f"{prefix}-{index}"
             if name.lower() != new_name.lower():
                 success = self.controller.rename_block(name, new_name)
@@ -132,7 +146,6 @@ class CADService:
                     renamed.append((name, new_name))
                     index += 1
         return renamed
-
 
     def rename_block(self, old_name: str, new_name: str):
         """Rename a block definition from old_name to new_name"""
@@ -143,6 +156,116 @@ class CADService:
         self.drawing_state["last_command"] = f"Rename block '{old_name}' to '{new_name}'"
         self.drawing_state["last_result"] = "Success" if success else "Failed"
         return success
+
+    def rename_blocks(
+        self,
+        prefix: str = "Block",
+        filter_layer: str = None,
+        filter_block_name_prefix: str = None,
+    ) -> Dict[str, Any]:
+        """Rename user-defined blocks matching optional layer/prefix filters."""
+        if not self.controller.is_running():
+            self.start_cad()
+
+        success = self.controller.rename_blocks(
+            prefix=prefix,
+            filter_layer=filter_layer,
+            filter_block_name_prefix=filter_block_name_prefix,
+        )
+        self.drawing_state["last_command"] = f"Rename blocks with prefix '{prefix}'"
+        self.drawing_state["last_result"] = "Success" if success else "Failed"
+        return {
+            "success": success,
+            "message": f"Blocks renamed with prefix '{prefix}'" if success else "Failed to rename blocks",
+        }
+
+    def list_objects(
+        self,
+        object_type=None,
+        layer: str = None,
+        block_name: str = None,
+        space: str = "model",
+        color: int = None,
+        limit: int = 50,
+        offset: int = 0,
+        include_details: bool = True,
+        include_geometry: bool = False,
+        include_attributes: bool = True,
+    ) -> Dict[str, Any]:
+        """List and filter entities in the active CAD drawing."""
+        if not self.controller.is_running():
+            self.start_cad()
+        return self.controller.collect_elements(
+            object_type=object_type,
+            layer=layer,
+            block_name=block_name,
+            space=space,
+            color=color,
+            limit=limit,
+            offset=offset,
+            include_details=include_details,
+            include_geometry=include_geometry,
+            include_attributes=include_attributes,
+        )
+
+    def get_drawing_summary(
+        self,
+        space: str = "model",
+        layer: str = None,
+        object_type=None,
+        max_scan: int = 5000,
+    ) -> Dict[str, Any]:
+        """Get a grouped count summary of entities in the active CAD drawing."""
+        if not self.controller.is_running():
+            self.start_cad()
+        return self.controller.get_drawing_summary(
+            space=space,
+            layer=layer,
+            object_type=object_type,
+            max_scan=max_scan,
+        )
+
+    def list_blocks(
+        self,
+        name_pattern: str = None,
+        include_system_blocks: bool = False,
+        include_instance_counts: bool = True,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List block definitions in the active CAD drawing."""
+        if not self.controller.is_running():
+            self.start_cad()
+        return self.controller.list_blocks(
+            name_pattern=name_pattern,
+            include_system_blocks=include_system_blocks,
+            include_instance_counts=include_instance_counts,
+            limit=limit,
+            offset=offset,
+        )
+
+    def list_layers(self, name_pattern: str = None) -> Dict[str, Any]:
+        """List layers in the active CAD drawing."""
+        if not self.controller.is_running():
+            self.start_cad()
+        return self.controller.list_layers(name_pattern=name_pattern)
+
+    def get_object_by_handle(
+        self,
+        handle: str,
+        include_details: bool = True,
+        include_geometry: bool = True,
+        include_attributes: bool = True,
+    ) -> Dict[str, Any]:
+        """Get full details for a CAD object by its handle."""
+        if not self.controller.is_running():
+            self.start_cad()
+        return self.controller.get_object_by_handle(
+            handle=handle,
+            include_details=include_details,
+            include_geometry=include_geometry,
+            include_attributes=include_attributes,
+        )
 
     ############################################
 
@@ -910,6 +1033,175 @@ async def main():
             ),
 
             types.Tool(
+                name="list_objects",
+                description=(
+                    "Query and list objects in the active CAD drawing using filtered collection "
+                    "(supports filtering by object type, layer, block name, space, color, and pagination)"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "object_type": {
+                            "oneOf": [
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}},
+                            ],
+                            "description": (
+                                "Filter by object type or list of types, e.g. 'polyline', 'line', "
+                                "'circle', 'arc', 'ellipse', 'text', 'mtext', 'block', 'hatch', "
+                                "'dimension', or raw DXF/AcDb names like 'LWPOLYLINE', 'AcDbPolyline'"
+                            ),
+                        },
+                        "layer": {
+                            "type": "string",
+                            "description": "Filter by layer name (case-insensitive; supports * and ? wildcards)",
+                        },
+                        "block_name": {
+                            "type": "string",
+                            "description": (
+                                "Filter block references by block name or dynamic block EffectiveName "
+                                "(case-insensitive; supports * and ? wildcards)"
+                            ),
+                        },
+                        "space": {
+                            "type": "string",
+                            "description": "Drawing space to query: 'model' (default), 'paper', 'all', or a layout name",
+                            "default": "model",
+                        },
+                        "color": {
+                            "type": "integer",
+                            "description": "Filter by AutoCAD Color Index (ACI integer, e.g. 1=red, 256=ByLayer)",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of objects to return (1-500, default 50)",
+                            "default": 50,
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Pagination offset into matching objects (default 0)",
+                            "default": 0,
+                        },
+                        "include_details": {
+                            "type": "boolean",
+                            "description": "Include type-specific summary properties (default true)",
+                            "default": True,
+                        },
+                        "include_geometry": {
+                            "type": "boolean",
+                            "description": "Include full vertex arrays for polylines (default false)",
+                            "default": False,
+                        },
+                        "include_attributes": {
+                            "type": "boolean",
+                            "description": "Include attribute tag/value pairs for block references (default true)",
+                            "default": True,
+                        },
+                    },
+                },
+            ),
+
+            types.Tool(
+                name="get_drawing_summary",
+                description=(
+                    "Summarize entity counts in the active CAD drawing grouped by entity type, "
+                    "layer, and block name without dumping full entity payloads"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "space": {
+                            "type": "string",
+                            "description": "Drawing space to summarize: 'model' (default), 'paper', 'all', or a layout name",
+                            "default": "model",
+                        },
+                        "layer": {
+                            "type": "string",
+                            "description": "Optional layer name or wildcard filter",
+                        },
+                        "object_type": {
+                            "oneOf": [
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}},
+                            ],
+                            "description": "Optional object type filter",
+                        },
+                        "max_scan": {
+                            "type": "integer",
+                            "description": "Maximum matching entities to scan for grouping (default 5000)",
+                            "default": 5000,
+                        },
+                    },
+                },
+            ),
+
+            types.Tool(
+                name="list_blocks",
+                description="List block definitions in the active CAD drawing with optional name filter and instance counts",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name_pattern": {
+                            "type": "string",
+                            "description": "Optional block name or wildcard filter (e.g. 'Door*')",
+                        },
+                        "include_system_blocks": {
+                            "type": "boolean",
+                            "description": "Include layout and *-prefixed anonymous/system blocks (default false)",
+                            "default": False,
+                        },
+                        "include_instance_counts": {
+                            "type": "boolean",
+                            "description": "Include count of placed block references per definition (default true)",
+                            "default": True,
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of block definitions to return (default 100)",
+                            "default": 100,
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Pagination offset (default 0)",
+                            "default": 0,
+                        },
+                    },
+                },
+            ),
+
+            types.Tool(
+                name="list_layers",
+                description="List layers and their properties (color, on/off, frozen, locked, active) in the active CAD drawing",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "name_pattern": {
+                            "type": "string",
+                            "description": "Optional layer name or wildcard filter (e.g. 'A-WALL*')",
+                        },
+                    },
+                },
+            ),
+
+            types.Tool(
+                name="get_object_by_handle",
+                description="Inspect full properties, attributes, and geometry of a single CAD object by its handle",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "handle": {
+                            "type": "string",
+                            "description": "Persistent DWG handle string of the object (returned by list_objects)",
+                        },
+                        "include_details": {"type": "boolean", "default": True},
+                        "include_geometry": {"type": "boolean", "default": True},
+                        "include_attributes": {"type": "boolean", "default": True},
+                    },
+                    "required": ["handle"],
+                },
+            ),
+
+            types.Tool(
                 name="process_command",
                 description="Process a natural language command and convert it to a CAD operation",
                 inputSchema={
@@ -928,8 +1220,7 @@ async def main():
     ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
         """Handle a tool execution request"""
         try:
-            if not arguments:
-                raise ValueError("Missing parameters")
+            arguments = arguments or {}
 
             if name == "draw_line":
                 start_point = arguments.get("start_point")
@@ -1138,6 +1429,70 @@ async def main():
 
                 result = cad_service.add_dimension(start_point, end_point, text_position, textheight, layer, color)
                 return [types.TextContent(type="text", text=str(result))]
+
+            elif name == "rename_blocks":
+                prefix = arguments.get("prefix")
+                if not prefix:
+                    raise ValueError("Missing prefix")
+                flt = arguments.get("filter") or {}
+                result = cad_service.rename_blocks(
+                    prefix=prefix,
+                    filter_layer=flt.get("layer"),
+                    filter_block_name_prefix=flt.get("block_name_prefix"),
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "list_objects":
+                result = cad_service.list_objects(
+                    object_type=arguments.get("object_type"),
+                    layer=arguments.get("layer"),
+                    block_name=arguments.get("block_name"),
+                    space=arguments.get("space", "model"),
+                    color=arguments.get("color"),
+                    limit=arguments.get("limit", 50),
+                    offset=arguments.get("offset", 0),
+                    include_details=arguments.get("include_details", True),
+                    include_geometry=arguments.get("include_geometry", False),
+                    include_attributes=arguments.get("include_attributes", True),
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "get_drawing_summary":
+                result = cad_service.get_drawing_summary(
+                    space=arguments.get("space", "model"),
+                    layer=arguments.get("layer"),
+                    object_type=arguments.get("object_type"),
+                    max_scan=arguments.get("max_scan", 5000),
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "list_blocks":
+                result = cad_service.list_blocks(
+                    name_pattern=arguments.get("name_pattern"),
+                    include_system_blocks=arguments.get("include_system_blocks", False),
+                    include_instance_counts=arguments.get("include_instance_counts", True),
+                    limit=arguments.get("limit", 100),
+                    offset=arguments.get("offset", 0),
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "list_layers":
+                result = cad_service.list_layers(
+                    name_pattern=arguments.get("name_pattern"),
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+            elif name == "get_object_by_handle":
+                handle = arguments.get("handle")
+                if not handle:
+                    raise ValueError("Missing handle")
+                result = cad_service.get_object_by_handle(
+                    handle=handle,
+                    include_details=arguments.get("include_details", True),
+                    include_geometry=arguments.get("include_geometry", True),
+                    include_attributes=arguments.get("include_attributes", True),
+                )
+                return [types.TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
 
             elif name == "process_command":
                 command = arguments.get("command")                

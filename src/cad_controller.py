@@ -18,6 +18,21 @@ except ImportError:
     logging.error("Could not import win32com.client or pythoncom. Make sure pywin32 is installed.")
     raise
 
+try:
+    from element_collector import (
+        CADElementCollector,
+        _matches_pattern,
+        _safe_getattr,
+        get_object_by_handle as collect_object_by_handle,
+    )
+except ImportError:
+    from .element_collector import (
+        CADElementCollector,
+        _matches_pattern,
+        _safe_getattr,
+        get_object_by_handle as collect_object_by_handle,
+    )
+
 logger = logging.getLogger('cad_controller')
 
 class CADController:
@@ -222,28 +237,59 @@ class CADController:
             return 0
 
     ################################################
+    def rename_block(self, old_name: str, new_name: str) -> bool:
+        """Rename a single block definition from old_name to new_name."""
+        if not self.is_running():
+            logger.error("CAD is not running; cannot rename block")
+            return False
+
+        try:
+            block = self.doc.Blocks.Item(old_name)
+            block.Name = new_name
+            self.refresh_view()
+            logger.info(f"Renamed block '{old_name}' to '{new_name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Error renaming block '{old_name}' to '{new_name}': {e}")
+            return False
+
     def rename_blocks(self, prefix="Block", filter_layer=None, filter_block_name_prefix=None):
-        """Rename blocks by given prefix, with optional filters"""
+        """Rename blocks by given prefix, with optional filters."""
+        if not self.is_running():
+            logger.error("CAD is not running; cannot rename blocks")
+            return False
+
         try:
             block_table = self.doc.Blocks
-            count = 1
+            existing_names = set()
+            candidates = []
 
             for block in block_table:
-                if block.IsLayout or block.Name.startswith("*"):
+                name = block.Name
+                existing_names.add(name.lower())
+                if block.IsLayout or name.startswith("*"):
                     continue
 
                 # Filter by block name prefix if specified
-                if filter_block_name_prefix and not block.Name.startswith(filter_block_name_prefix):
+                if filter_block_name_prefix and not name.startswith(filter_block_name_prefix):
                     continue
 
                 # Filter by layer if specified (check all entities in block)
                 if filter_layer:
-                    has_layer = any(entity.Layer == filter_layer for entity in block)
+                    has_layer = any(_safe_getattr(entity, "Layer") == filter_layer for entity in block)
                     if not has_layer:
                         continue
 
+                candidates.append(name)
+
+            count = 1
+            for old_name in candidates:
+                while f"{prefix}-{count}".lower() in existing_names:
+                    count += 1
                 new_name = f"{prefix}-{count}"
-                self.doc.Blocks.Item(block.Name).Name = new_name
+                self.doc.Blocks.Item(old_name).Name = new_name
+                existing_names.discard(old_name.lower())
+                existing_names.add(new_name.lower())
                 count += 1
 
             self.refresh_view()
@@ -761,4 +807,198 @@ class CADController:
             except Exception as e:
                 logger.error(f"Error adding dimension: {str(e)}")
                 return None
+
+    def collect_elements(
+        self,
+        object_type: Optional[Union[str, List[str]]] = None,
+        layer: Optional[str] = None,
+        block_name: Optional[str] = None,
+        space: str = "model",
+        color: Optional[int] = None,
+        limit: int = 50,
+        offset: int = 0,
+        include_details: bool = True,
+        include_geometry: bool = False,
+        include_attributes: bool = True,
+    ) -> Dict[str, Any]:
+        """Collect entities from the active drawing using filtered queries."""
+        if not self.is_running():
+            return {"success": False, "error": "CAD is not running or no active document"}
+
+        try:
+            collector = CADElementCollector(self.doc).in_space(space).limit(limit, offset)
+            if object_type:
+                collector.of_types(object_type)
+            if layer:
+                collector.on_layer(layer)
+            if block_name:
+                collector.of_block_name(block_name)
+            if color is not None:
+                collector.with_color(color)
+
+            result = collector.collect(
+                include_details=include_details,
+                include_geometry=include_geometry,
+                include_attributes=include_attributes,
+            )
+            result["success"] = True
+            result["document_name"] = _safe_getattr(self.doc, "Name")
+            return result
+        except Exception as e:
+            logger.error(f"Error collecting elements: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def get_drawing_summary(
+        self,
+        space: str = "model",
+        layer: Optional[str] = None,
+        object_type: Optional[Union[str, List[str]]] = None,
+        max_scan: int = 5000,
+    ) -> Dict[str, Any]:
+        """Summarize entity counts by type, layer, and block name in the active drawing."""
+        if not self.is_running():
+            return {"success": False, "error": "CAD is not running or no active document"}
+
+        try:
+            collector = CADElementCollector(self.doc).in_space(space)
+            if object_type:
+                collector.of_types(object_type)
+            if layer:
+                collector.on_layer(layer)
+
+            summary = collector.summarize(max_scan=max_scan)
+            summary["success"] = True
+            summary["document_name"] = _safe_getattr(self.doc, "Name")
+            return summary
+        except Exception as e:
+            logger.error(f"Error summarizing drawing: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def list_blocks(
+        self,
+        name_pattern: Optional[str] = None,
+        include_system_blocks: bool = False,
+        include_instance_counts: bool = True,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        """List block definitions in the active drawing."""
+        if not self.is_running():
+            return {"success": False, "error": "CAD is not running or no active document"}
+
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+
+        try:
+            instance_counts: Dict[str, int] = {}
+            if include_instance_counts:
+                ref_summary = (
+                    CADElementCollector(self.doc)
+                    .in_space("all")
+                    .of_type("block_reference")
+                    .summarize(max_scan=20000)
+                )
+                for b_name, b_count in ref_summary.get("by_block", {}).items():
+                    instance_counts[b_name.lower()] = b_count
+
+            matched_blocks: List[Dict[str, Any]] = []
+            total_matched = 0
+            for block in self.doc.Blocks:
+                name = _safe_getattr(block, "Name", "") or ""
+                is_layout = bool(_safe_getattr(block, "IsLayout", False))
+                is_xref = bool(_safe_getattr(block, "IsXRef", False))
+                is_dynamic = bool(_safe_getattr(block, "IsDynamicBlock", False))
+
+                if not include_system_blocks and (is_layout or name.startswith("*")):
+                    continue
+                if name_pattern and not _matches_pattern(name, name_pattern):
+                    continue
+
+                if offset <= total_matched < offset + limit:
+                    entry: Dict[str, Any] = {
+                        "name": name,
+                        "entity_count": _safe_getattr(block, "Count"),
+                        "is_layout": is_layout,
+                        "is_xref": is_xref,
+                        "is_dynamic": is_dynamic,
+                    }
+                    if include_instance_counts:
+                        entry["instance_count"] = instance_counts.get(name.lower(), 0)
+                    matched_blocks.append(entry)
+                total_matched += 1
+
+            return {
+                "success": True,
+                "document_name": _safe_getattr(self.doc, "Name"),
+                "total_matched": total_matched,
+                "returned_count": len(matched_blocks),
+                "offset": offset,
+                "limit": limit,
+                "has_more": (offset + len(matched_blocks)) < total_matched,
+                "blocks": matched_blocks,
+            }
+        except Exception as e:
+            logger.error(f"Error listing blocks: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def list_layers(self, name_pattern: Optional[str] = None) -> Dict[str, Any]:
+        """List layers and their properties in the active drawing."""
+        if not self.is_running():
+            return {"success": False, "error": "CAD is not running or no active document"}
+
+        try:
+            active_layer = _safe_getattr(_safe_getattr(self.doc, "ActiveLayer"), "Name")
+            layers: List[Dict[str, Any]] = []
+            for layer in self.doc.Layers:
+                name = _safe_getattr(layer, "Name", "") or ""
+                if name_pattern and not _matches_pattern(name, name_pattern):
+                    continue
+                layers.append({
+                    "name": name,
+                    "color": _safe_getattr(layer, "Color"),
+                    "is_on": bool(_safe_getattr(layer, "LayerOn", True)),
+                    "is_frozen": bool(_safe_getattr(layer, "Freeze", False)),
+                    "is_locked": bool(_safe_getattr(layer, "Lock", False)),
+                    "plottable": bool(_safe_getattr(layer, "Plottable", True)),
+                    "is_active": active_layer is not None and name.lower() == str(active_layer).lower(),
+                })
+
+            return {
+                "success": True,
+                "document_name": _safe_getattr(self.doc, "Name"),
+                "active_layer": active_layer,
+                "count": len(layers),
+                "layers": layers,
+            }
+        except Exception as e:
+            logger.error(f"Error listing layers: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    def get_object_by_handle(
+        self,
+        handle: str,
+        include_details: bool = True,
+        include_geometry: bool = True,
+        include_attributes: bool = True,
+    ) -> Dict[str, Any]:
+        """Look up a single CAD entity by its persistent DWG handle."""
+        if not self.is_running():
+            return {"success": False, "error": "CAD is not running or no active document"}
+
+        try:
+            obj = collect_object_by_handle(
+                self.doc,
+                handle,
+                include_details=include_details,
+                include_geometry=include_geometry,
+                include_attributes=include_attributes,
+            )
+            return {
+                "success": True,
+                "document_name": _safe_getattr(self.doc, "Name"),
+                "object": obj,
+            }
+        except Exception as e:
+            logger.error(f"Error getting object by handle '{handle}': {str(e)}")
+            return {"success": False, "error": str(e)}
 
